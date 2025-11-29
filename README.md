@@ -10,6 +10,9 @@
 This repository is under construction and will be officially released by [Mizuno group](https://github.com/mizuno-group).  
 Please contact tadahaya[at]gmail.com before publishing your paper using the contents of this repository.  
 
+## release note
+2025/11/28 このリポジトリ内に医療系言語モデル(MLM)のベンチマークを行う `benchmark_test` ディレクトリを作成しました。ベンチマークや実行例の詳細は `benchmark_test/README.md` を参照してください。  
+  
 ## Organization
 ------------  
 
