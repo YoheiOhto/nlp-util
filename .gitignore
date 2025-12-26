@@ -1,3 +1,8 @@
+# any data files
+*/data/defreeze/
+
+megatron_checkpoint_converter/data
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
