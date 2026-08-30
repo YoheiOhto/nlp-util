@@ -135,3 +135,6 @@ dmypy.json
 
 # wandb log
 *wandb/
+
+# Agent-generated activity logs
+logs/
