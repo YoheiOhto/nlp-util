@@ -6,7 +6,7 @@
 x86 の計算機用と grace (ARM の CPU) 用の2つずつ、合わせて **8つ** を版つきで管理します。
 どれも **uv** で作り、uv で使えます。
 
-> 2026-10-11 時点で、定義 (このフォルダ) はできていますが、**SIF はまだ1つも作っていません** (7章)。
+> 2026-10-11 時点で、**x86 用の4つは micgm1 で作りました** (nlp・llm・train は GPU のテストまで通過。es はテストのやり直し待ち)。grace 用 (ARM) はまだです。記録は [RELEASES.md](RELEASES.md)。
 
 ---
 
@@ -134,26 +134,30 @@ bash envs/es/run_es.sh es-2026.10.0-$(uname -m).sif <データのフォルダ> 9
 作るのは Slurm のジョブです。エージェント (Claude など) はジョブを出せない決まりなので、**人が出します**。
 どちらも、コミットしてから出します (変更が残っていると止まります)。
 
-**x86 用 (micgm1 で)**:
+**x86 用 (micgm1 で)**: 作るジョブと、それが成功したら GPU で確かめるジョブを、1行でまとめて出します。
 
 ```bash
-cd <nlp-util のフォルダ>
-sbatch -p large-micgm1 envs/build.sbatch                   # 4つの SIF を作る (最大 4 時間)
-sbatch -p small-micgm1 -d afterok:<上のジョブ番号> envs/test.sbatch   # GPU で確かめる
+cd <nlp-util のフォルダ> && j=$(sbatch --parsable -p large-micgm1 envs/build.sbatch) && sbatch --kill-on-invalid-dep=yes -p small-micgm1 -d afterok:$j envs/test.sbatch && echo build=$j
 ```
 
+- 4つ作るのに約 15 分でした (2026-10-11、micgm1。土台がまだ無いときはさらに数分)。作るジョブが失敗すると、確かめるジョブは自動で取り消されます。
+- 一部だけ確かめ直すときは `sbatch -p small-micgm1 envs/test.sbatch --envs es` のように `--envs` を付けます。
+  後ろにコメントを書かないでください (全角の空白の後ろの `#` はコメントにならず、引数になって止まります)。
 - 置き場所は、既定でリポジトリの外の `../../images/` (`--out` で変えられます)。作業用の一時ファイルは `/scratch` があればそこ、無ければ置き場所の下の `.work/` です。
 
-**grace 用 (grace02 で。parent から)**:
+**grace 用 (grace02 で。parent から)**: nlp-util を filesrv01 の上に置き、x86 用と同じ定義のコミットにしてから出します。
 
 ```bash
-cd /workspace/filesrv01/<自分のユーザー名>/nlp-util          # nlp-util を filesrv01 の上に置いて、同じコミットにする
-sbatch -p large-grace-o -w grace02 envs/build.sbatch --out /workspace/filesrv01/<自分>/nlp-envs/images
-sbatch -p small-grace-o -w grace02 -d afterok:<上のジョブ番号> envs/test.sbatch --out /workspace/filesrv01/<自分>/nlp-envs/images
+git clone -b <ブランチ> git@github.com:YoheiOhto/nlp-util.git /workspace/filesrv01/$USER/nlp-util
+cd /workspace/filesrv01/$USER/nlp-util && git log -1 --oneline   # RELEASES.md の x86 用と同じ定義か確かめる
+out=/workspace/filesrv01/$USER/nlp-envs/images
+j=$(sbatch --parsable -p large-grace-o -w grace02 envs/build.sbatch --out $out) && sbatch --kill-on-invalid-dep=yes -p small-grace-o -w grace02 -d afterok:$j envs/test.sbatch --out $out && echo build=$j
 ```
 
 - 今のクラスタは、`-o` のパーティションには filesrv01 の上のフォルダから出す決まりです (grace02 は `-o`)。
 - grace01 は修理中です (2026-10)。
+- grace02 で作るのは初めてです。apptainer が管理者権限なしに作れるか (fakeroot)、grace02 から nvidia/cuda と PyPI に届くかは、まだ確かめていません。
+  止まったら、ログ (`nlp-envs-build-<番号>.log`) を見て相談してください。
 
 **作った後**: 各 SIF の横の `.sha256` の値を [RELEASES.md](RELEASES.md) に書き、`.test.log` が全部 PASS であることを確かめます。
 
@@ -170,7 +174,7 @@ sbatch -p small-grace-o -w grace02 -d afterok:<上のジョブ番号> envs/test.
 
 ## 9. まだのこと
 
-- SIF をまだ作っていません (7章)。作ったら、RELEASES.md に記録します。
+- grace 用 (ARM) の4つをまだ作っていません (7章)。x86 用の es はテストのやり直し待ちです。全部通ったら、RELEASES.md に記録してタグ `nlp-envs-2026.10.0` を付けます。
 - **ほかの人が使える置き場所**: 作った SIF をどこに置くかは未定です。案は、クラスタの各ノードの `/opt/lab/images` に配る (研究室のクラスタのキットの D-SIF-1)、
   またはファイルサーバーの共有フォルダ (filesrv01 と filesrv02 の両方。今はノードが片方しか見ないため) です。
 - 言語班のほかの人のプロジェクトの環境は、まだ合わせていません (2026-10 は大戸のプロジェクト 4 つから作った)。
