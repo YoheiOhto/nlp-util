@@ -144,6 +144,22 @@ class ScriptTest(unittest.TestCase):
                          set(PYPROJECT["project"]["optional-dependencies"]),
                          "smoke.py REQUIRED must list one entry per extra in pyproject.toml")
 
+    def test_host_python_settings_are_dropped_before_apptainer(self) -> None:
+        # apptainer passes the caller's environment in; a UV_CACHE_DIR outside the image broke build job 2745.
+        for script in ("build.sh", "test.sh"):
+            with self.subTest(script=script):
+                source = (ENVS / script).read_text(encoding="utf-8")
+                scrub = source.find("UV_*|PYTHON*|VIRTUAL_ENV|CONDA_*|PIP_*) unset")
+                self.assertNotEqual(scrub, -1)
+                self.assertLess(scrub, source.find("apptainer build" if script == "build.sh" else "apptainer exec"))
+
+    def test_build_time_checks_do_not_need_the_uv_cache(self) -> None:
+        for definition in sorted((ENVS / "containers").glob("*.def")):
+            with self.subTest(definition=definition.name):
+                test_section = definition.read_text(encoding="utf-8").partition("%test")[2]
+                commands = re.findall(r"^\s*uv\s+(\S+)", test_section, re.M)
+                self.assertTrue(set(commands) <= {"--version"}, f"%test runs uv {commands}")
+
     def test_published_images_are_never_overwritten(self) -> None:
         build = (ENVS / "build.sh").read_text(encoding="utf-8")
         self.assertIn('if [ -e "$target" ]; then', build)

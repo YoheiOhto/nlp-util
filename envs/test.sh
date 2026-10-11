@@ -30,6 +30,11 @@ case "$(uname -m)" in
 esac
 version="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$ENVS_DIR/pyproject.toml")"
 
+# 利用者のシェルの uv・Python の設定 (PYTHONPATH など) が入ると SIF の外のパッケージを読みうるので消す (build.sh と同じ)
+for name in $(compgen -e); do
+    case "$name" in UV_*|PYTHON*|VIRTUAL_ENV|CONDA_*|PIP_*) unset "$name" ;; esac
+done
+
 failed=0
 summary=()
 for env in ${want_envs//,/ }; do

@@ -55,5 +55,7 @@ From: nvidia/cuda:{{ CUDA_IMAGE_TAG }}
     mkdir -p /uv-cache
 
 %test
+    # uv のキャッシュを使う命令は呼ばない (作るときの確認では、書き込める場所が無いことがある)
     uv --version
-    UV_PYTHON_INSTALL_DIR=/opt/uv/python uv python find "{{ PYTHON_VERSION }}"
+    ls /opt/uv/python/cpython-{{ PYTHON_VERSION }}.*/bin/python{{ PYTHON_VERSION }}
+    /opt/uv/python/cpython-{{ PYTHON_VERSION }}.*/bin/python{{ PYTHON_VERSION }} --version

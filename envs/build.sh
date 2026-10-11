@@ -37,6 +37,12 @@ done
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+# apptainer は外の環境変数をコンテナに渡す。利用者のシェルの uv・Python の設定 (UV_CACHE_DIR など) が
+# 入ると、作るときの確認がコンテナから見えない場所を使おうとして止まり、中身も変わりうるので消す。
+for name in $(compgen -e); do
+    case "$name" in UV_*|PYTHON*|VIRTUAL_ENV|CONDA_*|PIP_*) unset "$name" ;; esac
+done
+
 case "$(uname -m)" in
     x86_64) arch=x86_64 ;;
     aarch64|arm64) arch=aarch64 ;;
