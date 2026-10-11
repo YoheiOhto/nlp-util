@@ -13,9 +13,15 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/nlp-envs-es.XXXXXX")"
 port=$((19200 + RANDOM % 500))
 url="http://127.0.0.1:${port}"
 
+# 止めた Elasticsearch の終了コード (143) を、この確認の結果にしない (ジョブ 2751 は PASS なのに 143 で終わった)
 cleanup() {
-    [ -n "${es_pid:-}" ] && kill "$es_pid" 2>/dev/null && wait "$es_pid" 2>/dev/null
+    local status=$?
+    if [ -n "${es_pid:-}" ]; then
+        kill "$es_pid" 2>/dev/null || true
+        wait "$es_pid" 2>/dev/null || true
+    fi
     rm -rf "$tmp"
+    exit "$status"
 }
 trap cleanup EXIT
 

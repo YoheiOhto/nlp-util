@@ -4,8 +4,11 @@ Run from the repository root:  python3 -m unittest discover -s envs/tests
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import tempfile
+import textwrap
 import tomllib
 import unittest
 from pathlib import Path
@@ -162,6 +165,33 @@ class ScriptTest(unittest.TestCase):
         for setting in ("discovery.type=single-node", "network.host=127.0.0.1", "http.port=${port}",
                         "xpack.security.enabled=false"):
             self.assertRegex(run_es, r'-E\s+"?' + re.escape(setting))
+
+    def test_es_smoke_exits_zero_when_it_passes(self) -> None:
+        # Job 2751 printed "PASS es" but ended with 143: stopping Elasticsearch leaked into the result.
+        # Fake apptainer (a long sleep in place of Elasticsearch) and curl (canned answers) keep this offline.
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "apptainer").write_text("#!/bin/sh\nexec sleep 300\n", encoding="utf-8")
+            (bin_dir / "curl").write_text(textwrap.dedent("""\
+                #!/bin/sh
+                for arg; do url="$arg"; done
+                case "$url" in
+                    *_cluster/health*) echo '{}' ;;
+                    *_nodes/_local/jvm) echo '{"nodes": {"n": {"jvm": {"mem": {"heap_max_in_bytes": 1073741824}}}}}' ;;
+                    *smoke/_doc/1*) echo '{}' ;;
+                    *_search*) echo '{"hits": {"total": {"value": 1}}}' ;;
+                    *) echo '{"version": {"number": "8.19.23"}}' ;;
+                esac
+                """), encoding="utf-8")
+            for tool in bin_dir.iterdir():
+                tool.chmod(0o755)
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "TMPDIR": tmp}
+            result = subprocess.run(["bash", str(ENVS / "es" / "smoke_es.sh"), "fake.sif"],
+                                    env=env, capture_output=True, text=True, timeout=60)
+            self.assertIn("PASS es", result.stdout, result.stdout + result.stderr)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(list(Path(tmp).glob("nlp-envs-es.*")), [], "the temporary folder was left behind")
 
     def test_build_time_checks_do_not_need_the_uv_cache(self) -> None:
         for definition in sorted((ENVS / "containers").glob("*.def")):
