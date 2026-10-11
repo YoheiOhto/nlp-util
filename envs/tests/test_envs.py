@@ -151,6 +151,18 @@ class ScriptTest(unittest.TestCase):
                 self.assertNotEqual(scrub, -1)
                 self.assertLess(scrub, source.find("apptainer build" if script == "build.sh" else "apptainer exec"))
 
+    def test_apptainer_env_names_have_no_dots(self) -> None:
+        # apptainer rejects names such as http.port ("invalid var name") and drops the --env values after
+        # them; test job 2749 started Elasticsearch on 9200 instead of the asked port. Use -E settings.
+        for script in sorted(ENVS.rglob("*.sh")):
+            with self.subTest(script=script.name):
+                names = re.findall(r'--env\s+"?([^="\s]+)=', script.read_text(encoding="utf-8"))
+                self.assertEqual([n for n in names if "." in n], [])
+        run_es = (ENVS / "es" / "run_es.sh").read_text(encoding="utf-8")
+        for setting in ("discovery.type=single-node", "network.host=127.0.0.1", "http.port=${port}",
+                        "xpack.security.enabled=false"):
+            self.assertRegex(run_es, r'-E\s+"?' + re.escape(setting))
+
     def test_build_time_checks_do_not_need_the_uv_cache(self) -> None:
         for definition in sorted((ENVS / "containers").glob("*.def")):
             with self.subTest(definition=definition.name):

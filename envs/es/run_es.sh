@@ -21,15 +21,18 @@ heap="${4:-4g}"
 mkdir -p "$data/data" "$data/logs"
 ulimit -n 65535 2>/dev/null || echo "WARN: could not raise the open-file limit (ulimit -n)" >&2
 
+# 設定は -E で渡す。Docker の説明にある「http.port=... の環境変数」は apptainer では使えない
+# (点を含む名前を "invalid var name" で捨て、その後ろの --env もまとめて消える。テストのジョブ 2749 で、
+#  9200 で立ち上がって指定のポートに来なかった)。--env には点の無い名前だけを書く。
 exec apptainer exec \
     --cleanenv \
     --writable-tmpfs \
     --bind "$data/data:/usr/share/elasticsearch/data" \
     --bind "$data/logs:/usr/share/elasticsearch/logs" \
-    --env "discovery.type=single-node" \
-    --env "network.host=127.0.0.1" \
-    --env "http.port=${port}" \
-    --env "xpack.security.enabled=false" \
     --env "ES_JAVA_OPTS=-Xms${heap} -Xmx${heap}" \
     "$sif" \
-    /usr/local/bin/docker-entrypoint.sh eswrapper
+    /usr/local/bin/docker-entrypoint.sh eswrapper \
+    -E discovery.type=single-node \
+    -E network.host=127.0.0.1 \
+    -E "http.port=${port}" \
+    -E xpack.security.enabled=false
