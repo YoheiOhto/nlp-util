@@ -16,7 +16,8 @@ from pathlib import Path
 ENVS = Path(__file__).resolve().parents[1]
 PYPROJECT = tomllib.loads((ENVS / "pyproject.toml").read_text(encoding="utf-8"))
 LOCK = tomllib.loads((ENVS / "uv.lock").read_text(encoding="utf-8"))
-ARCHES = ("x86_64", "aarch64")
+ARCHES = ("x86_64", "aarch64")  # uv.lock must install on both (grace uses uv sync)
+SIF_ARCHES = ("x86_64",)  # published images; no grace (aarch64) SIF is built
 ENV_NAMES = ("nlp", "llm", "train", "es")
 
 # Packages that have no wheel for a CPU and are compiled from source while building (needs the
@@ -112,8 +113,10 @@ class VersionTest(unittest.TestCase):
         readme = (ENVS / "README.md").read_text(encoding="utf-8")
         self.assertIn(version, readme)
         for env in ENV_NAMES:
-            for arch in ARCHES:
+            for arch in SIF_ARCHES:
                 self.assertIn(f"{env}-{version}-{arch}.sif", readme)
+            # grace gets the same versions through uv sync, not a SIF (decided 2026-10-11)
+            self.assertNotIn(f"{env}-{version}-aarch64.sif", readme)
 
     def test_build_settings_are_complete(self) -> None:
         settings = PYPROJECT["tool"]["nlp-envs"]

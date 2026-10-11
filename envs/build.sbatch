@@ -4,8 +4,7 @@
 # ==============================================================================
 # x86_64 (micgm1):
 #   cd <nlp-util のフォルダ> && sbatch -p large-micgm1 envs/build.sbatch
-# aarch64 (grace02。parent から、filesrv01 の上の nlp-util のフォルダで):
-#   sbatch -p large-grace-o -w grace02 envs/build.sbatch --out /workspace/filesrv01/$USER/nlp-envs/images
+# grace (aarch64) 用の SIF は作らない (2026-10-11 に決めた。grace では README の 4.2 の uv で入れる)。
 # build.sh の引数 (--envs nlp,llm など) はそのまま後ろに付ける。
 # CPU 16・メモリ 64GB・4 時間: llm は wheel だけで数GB あり、SIF への圧縮に時間がかかるため。
 # ==============================================================================

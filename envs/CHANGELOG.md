@@ -6,7 +6,8 @@
 
 2026-10-11。最初の版。
 
-- 4種類 (nlp・llm・train・es) × 2つの CPU (x86_64・aarch64) の8つの環境を、1つの `pyproject.toml` と `uv.lock` で定義した。
+- 4種類 (nlp・llm・train・es) の環境を、1つの `pyproject.toml` と `uv.lock` で定義した。`uv.lock` は x86_64 と aarch64 (grace) の両方を解く。
+- SIF は x86_64 用だけを作る。grace 用の SIF は作らない (2026-10-11 に決めた)。grace では `uv sync --frozen` で同じ版を入れる。
 - 版は、大戸の言語系のプロジェクト 4 つ (pharma_MLM_bench・text_data_handler・text_preprocess_with_llm・claim-KG。2026-09 の `uv.lock`) を見て決めた。
   - torch 2.13.0 (CUDA 13)、transformers 5.17.0、vLLM 0.31.0 (2026-10-05 の最新)。vLLM が torch 2.13.0 と transformers <5.18 を求めるため、nlp・train も同じ版にそろえた。
   - `datasets` を 4.7 以上にした (今のプロジェクトでは vLLM と組んだときに 1.1.1 まで戻っていた。trl 1.x も 4.7 以上を求める)。
@@ -23,4 +24,4 @@
 - `es/run_es.sh` は、Elasticsearch の設定 (ポートなど) を `-E` で渡す。apptainer は `http.port` のような点を含む環境変数を捨てるため、
   テストのジョブ 2749 では指定と違うポート (9200) で立ち上がっていた。`es/smoke_es.sh` は、指定したヒープ (1g) が届いたかも確かめる。
 - `es/smoke_es.sh` が、確かめ終わって Elasticsearch を止めたときの終了コード (143) を自分の結果にしていたのを直した (ジョブ 2751 は PASS なのに FAIL と出た。2749 の FAIL の終了コードも 1 でなく 143 になっていた)。一時フォルダも残さない。
-- x86 用の4つは 2026-10-11 に micgm1 で作り、テストを通った ([RELEASES.md](RELEASES.md))。grace 用はまだ。
+- x86 用の4つは 2026-10-11 に micgm1 で作り、テストを通った ([RELEASES.md](RELEASES.md))。

@@ -11,7 +11,7 @@ This repository is under construction and will be officially released by [Mizuno
 Please contact tadahaya[at]gmail.com before publishing your paper using the contents of this repository.  
 
 ## release note
-2026/10/11 言語班の共通環境 `envs/` を作りました。nlp・llm・train・es の4種類を、x86 の計算機用と grace (ARM) 用の2つずつ、uv の `uv.lock` と Apptainer の SIF で版つきで管理します。使い方は `envs/README.md` を参照してください。  
+2026/10/11 言語班の共通環境 `envs/` を作りました。nlp・llm・train・es の4種類を、uv の `uv.lock` と Apptainer の SIF (x86 の計算機用) で版つきで管理します。grace (ARM) では同じ `uv.lock` から uv で入れます。使い方は `envs/README.md` を参照してください。  
 2025/11/28 このリポジトリ内に医療系言語モデル(MLM)のベンチマークを行う `benchmark_test` ディレクトリを作成しました。ベンチマークや実行例の詳細は `benchmark_test/README.md` を参照してください。  
   
 ## Organization

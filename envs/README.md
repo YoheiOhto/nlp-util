@@ -2,11 +2,12 @@
 
 **今の版: 2026.10.0** (2026-10-11) ／ 変更の記録: [CHANGELOG.md](CHANGELOG.md) ／ 作った SIF の記録: [RELEASES.md](RELEASES.md)
 
-言語班のみんなが同じ版のパッケージで実験できるように、よく使う環境を4種類用意し、
-x86 の計算機用と grace (ARM の CPU) 用の2つずつ、合わせて **8つ** を版つきで管理します。
+言語班のみんなが同じ版のパッケージで実験できるように、よく使う環境を4種類用意し、版つきで管理します。
+x86 の計算機では Apptainer の SIF で使い、grace (ARM の CPU) では uv で同じ版を入れて使います (4.2)。
 どれも **uv** で作り、uv で使えます。
 
-> 2026-10-11 時点で、**x86 用の4つは micgm1 で作りました** (4つともテストを通過)。grace 用 (ARM) はまだです。記録は [RELEASES.md](RELEASES.md)。
+> 2026-10-11 時点で、**x86 用の SIF 4つは micgm1 で作りました** (4つともテストを通過)。記録は [RELEASES.md](RELEASES.md)。
+> grace 用の SIF は作りません (2026-10-11 に決めた)。
 
 ---
 
@@ -19,16 +20,17 @@ x86 の計算機用と grace (ARM の CPU) 用の2つずつ、合わせて **8�
 
 ここでは、組み合わせを一度だけ解いて (`uv.lock`)、x86 と ARM の両方で同じ版を使えるようにします。
 
-## 2. 8つの環境
+## 2. 4つの環境
 
-| 環境 | 使い道 | x86 の計算機用 (creator・david・andre・hiegm5・preproc01・micgm1) | grace 用 (ARM) |
+| 環境 | 使い道 | SIF (x86 の計算機用: creator・david・andre・hiegm5・preproc01・micgm1) | grace (ARM) |
 | :--- | :--- | :--- | :--- |
-| **nlp** | 前処理・BERT 系の学習と評価・データ処理 | `nlp-2026.10.0-x86_64.sif` | `nlp-2026.10.0-aarch64.sif` |
-| **llm** | vLLM での推論・LLM での判定・API | `llm-2026.10.0-x86_64.sif` | `llm-2026.10.0-aarch64.sif` |
-| **train** | LoRA などの軽い学習 | `train-2026.10.0-x86_64.sif` | `train-2026.10.0-aarch64.sif` |
-| **es** | Elasticsearch (検索のサーバー) | `es-2026.10.0-x86_64.sif` | `es-2026.10.0-aarch64.sif` |
+| **nlp** | 前処理・BERT 系の学習と評価・データ処理 | `nlp-2026.10.0-x86_64.sif` | `uv sync --frozen` (4.2) |
+| **llm** | vLLM での推論・LLM での判定・API | `llm-2026.10.0-x86_64.sif` | `uv sync --frozen --extra llm` |
+| **train** | LoRA などの軽い学習 | `train-2026.10.0-x86_64.sif` | `uv sync --frozen --extra train` |
+| **es** | Elasticsearch (検索のサーバー) | `es-2026.10.0-x86_64.sif` | 無し |
 
-- 名前は `<環境>-<版>-<CPU>.sif` です。**x86 用の SIF は grace では動きません** (逆も同じ)。`uname -m` で CPU を確かめます。
+- SIF の名前は `<環境>-<版>-<CPU>.sif` です。**x86 用の SIF は grace では動きません**。`uname -m` で CPU を確かめます。
+- grace では、同じ `uv.lock` から ARM 用の部品が入るので、x86 の SIF と同じ版になります。ただし grace の上で動くかは、まだ確かめていません (8章)。
 - `llm` と `train` は、`nlp` の中身を全部含みます。
 
 ## 3. 中身と主な版
@@ -127,12 +129,12 @@ bash envs/es/run_es.sh es-2026.10.0-$(uname -m).sif <データのフォルダ> 9
 
 3. 静的なテストを通す: `python3 -m unittest discover -s envs/tests` (リポジトリの一番上で)。
    - x86 と ARM のどちらかで入らない版、ソースからの組み立てが新しく必要になったパッケージ、`pyproject.toml` と `uv.lock` の食い違いを見つけます。
-4. コミットしてから、x86 と ARM の両方で作り (7章)、テストし、RELEASES.md に記録して、タグを付けます。
+4. コミットしてから x86 用の SIF を作り (7章)、テストし、RELEASES.md に記録して、タグを付けます。
 
 ## 7. 作る
 
 作るのは Slurm のジョブです。エージェント (Claude など) はジョブを出せない決まりなので、**人が出します**。
-どちらも、コミットしてから出します (変更が残っていると止まります)。
+コミットしてから出します (変更が残っていると止まります)。
 
 **x86 用 (micgm1 で)**: 作るジョブと、それが成功したら GPU で確かめるジョブを、1行でまとめて出します。
 
@@ -145,26 +147,16 @@ cd <nlp-util のフォルダ> && j=$(sbatch --parsable -p large-micgm1 envs/buil
   後ろにコメントを書かないでください (全角の空白の後ろの `#` はコメントにならず、引数になって止まります)。
 - 置き場所は、既定でリポジトリの外の `../../images/` (`--out` で変えられます)。作業用の一時ファイルは `/scratch` があればそこ、無ければ置き場所の下の `.work/` です。
 
-**grace 用 (grace02 で。parent から)**: nlp-util を filesrv01 の上に置き、x86 用と同じ定義のコミットにしてから出します。
-
-```bash
-git clone -b <ブランチ> git@github.com:YoheiOhto/nlp-util.git /workspace/filesrv01/$USER/nlp-util
-cd /workspace/filesrv01/$USER/nlp-util && git log -1 --oneline   # RELEASES.md の x86 用と同じ定義か確かめる
-out=/workspace/filesrv01/$USER/nlp-envs/images
-j=$(sbatch --parsable -p large-grace-o -w grace02 envs/build.sbatch --out $out) && sbatch --kill-on-invalid-dep=yes -p small-grace-o -w grace02 -d afterok:$j envs/test.sbatch --out $out && echo build=$j
-```
-
-- 今のクラスタは、`-o` のパーティションには filesrv01 の上のフォルダから出す決まりです (grace02 は `-o`)。
-- grace01 は修理中です (2026-10)。
-- grace02 で作るのは初めてです。apptainer が管理者権限なしに作れるか (fakeroot)、grace02 から nvidia/cuda と PyPI に届くかは、まだ確かめていません。
-  止まったら、ログ (`nlp-envs-build-<番号>.log`) を見て相談してください。
+**grace 用**: SIF は作りません (2026-10-11 に決めた)。grace では 4.2 のとおり uv で入れます。
+`build.sh` は ARM の機械で動かせば ARM 用を作るように書いてありますが、一度も試していません。
 
 **作った後**: 各 SIF の横の `.sha256` の値を [RELEASES.md](RELEASES.md) に書き、`.test.log` が全部 PASS であることを確かめます。
 
 ## 8. 注意
 
 - **ドライバ**: CUDA 13 なので、NVIDIA のドライバ 580 以上が必要です (2026-09 の機器一覧では、ドライバのある機械は全部 580 以上)。
-- **GB10 (grace)**: torch は sm_120 の部品で GB10 (sm_121) を動かします。vLLM は 0.19 から GB10 に対応しています。動くかどうかは 7章のテストで確かめます。
+- **GB10 (grace)**: torch は sm_120 の部品で GB10 (sm_121) を動かします。vLLM は 0.19 から GB10 に対応しています。
+  grace の上ではまだ確かめていません。4.2 で入れたあと、GPU のジョブの中で `envs` から `uv run --frozen --extra llm python tests/smoke.py --env llm` を流すと確かめられます。
 - **NVIDIA の CUTLASS のライブラリ**: `nvidia-cutlass-dsl` の決まりで、CUDA 12 用と 13 用の両方が入ります (実行時に合う方が使われる)。
 - **Elasticsearch のデータ**: 4.4 の注意を読んでください。
 - **scispaCy は入っていません**: どの版も numpy 1 が要り (0.5.5 は spaCy 3.7 を、0.6.2 は numpy<2 を求める)、numpy 2 が要る vLLM と同じ環境に入れられないためです。
@@ -174,7 +166,8 @@ j=$(sbatch --parsable -p large-grace-o -w grace02 envs/build.sbatch --out $out) 
 
 ## 9. まだのこと
 
-- grace 用 (ARM) の4つをまだ作っていません (7章)。全部通ったら、RELEASES.md に記録してタグ `nlp-envs-2026.10.0` を付けます。
+- タグ `nlp-envs-2026.10.0` は、この版が main に入ってから付けます。
+- grace で uv で入れた環境が動くかは、まだ確かめていません (8章の GB10)。
 - **ほかの人が使える置き場所**: 作った SIF をどこに置くかは未定です。案は、クラスタの各ノードの `/opt/lab/images` に配る (研究室のクラスタのキットの D-SIF-1)、
   またはファイルサーバーの共有フォルダ (filesrv01 と filesrv02 の両方。今はノードが片方しか見ないため) です。
 - 言語班のほかの人のプロジェクトの環境は、まだ合わせていません (2026-10 は大戸のプロジェクト 4 つから作った)。
