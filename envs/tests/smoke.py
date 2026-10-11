@@ -25,7 +25,7 @@ from pathlib import Path
 # Packages each environment must import, and packages it must not contain.
 REQUIRED = {
     "nlp": ["torch", "transformers", "tokenizers", "datasets", "accelerate", "numpy", "pandas",
-            "polars", "duckdb", "sklearn", "spacy", "scispacy", "elasticsearch"],
+            "polars", "duckdb", "sklearn", "spacy", "elasticsearch"],
     "llm": ["vllm", "openai", "anthropic", "tiktoken"],
     "train": ["peft", "trl", "bitsandbytes", "wandb"],
 }

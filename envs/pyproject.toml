@@ -30,9 +30,9 @@ dependencies = [
     "huggingface-hub",
     "sentencepiece",
     "evaluate",
-    # 言語処理 (scispacy 0.5.5 は今のプロジェクトと同じ。0.6 は numpy<2 を求めるため上げない)
-    "spacy>=3.7,<3.8",
-    "scispacy==0.5.5",
+    # 言語処理。spaCy 3.7 は numpy 1 用に組み立てられていて、numpy 2 では import で止まる (3.8 から numpy 2 対応)。
+    # scispacy はどの版も numpy 1 が要る (0.5.5 は spaCy 3.7、0.6.2 は numpy<2) ので入れない (README の注意)
+    "spacy>=3.8,<3.9",
     "lxml",
     # データ処理
     "numpy",

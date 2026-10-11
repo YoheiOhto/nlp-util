@@ -41,14 +41,14 @@ x86 の計算機用と grace (ARM の CPU) 用の2つずつ、合わせて **8�
 | transformers | 5.17.0 | nlp・llm・train |
 | datasets / accelerate / tokenizers | 5.1.0 / 1.15.0 / 0.23.3 | nlp・llm・train |
 | numpy / pandas / polars / duckdb | 2.3.5 / 3.0.6 / `uv.lock` のとおり | nlp・llm・train |
-| spaCy / scispaCy | 3.7.5 / 0.5.5 | nlp・llm・train |
+| spaCy | 3.8.16 (scispaCy は入っていない。8章) | nlp・llm・train |
 | elasticsearch (クライアント) | 8.19.3 | nlp・llm・train |
 | vLLM | 0.31.0 | llm |
 | openai / anthropic / tiktoken | `uv.lock` のとおり | llm |
 | peft / trl / bitsandbytes / wandb | 0.21.2 / 1.15.0 / 0.50.2 / `uv.lock` のとおり | train |
 | Elasticsearch (サーバー) | 8.19.23 | es |
 
-全部の版は [`uv.lock`](uv.lock) にあります (314 個)。何を入れるかは [`pyproject.toml`](pyproject.toml) に書いています。
+全部の版は [`uv.lock`](uv.lock) にあります (307 個)。何を入れるかは [`pyproject.toml`](pyproject.toml) に書いています。
 
 ## 4. 使い方
 
@@ -154,7 +154,6 @@ sbatch -p small-grace-o -w grace02 -d afterok:<上のジョブ番号> envs/test.
 
 - 今のクラスタは、`-o` のパーティションには filesrv01 の上のフォルダから出す決まりです (grace02 は `-o`)。
 - grace01 は修理中です (2026-10)。
-- ARM では `nmslib-metabrainz` (scispaCy が使う) に組み立て済みの部品が無く、作るときにその場でコンパイルします。ここで止まったら、ログを見て相談してください。
 
 **作った後**: 各 SIF の横の `.sha256` の値を [RELEASES.md](RELEASES.md) に書き、`.test.log` が全部 PASS であることを確かめます。
 
@@ -164,6 +163,10 @@ sbatch -p small-grace-o -w grace02 -d afterok:<上のジョブ番号> envs/test.
 - **GB10 (grace)**: torch は sm_120 の部品で GB10 (sm_121) を動かします。vLLM は 0.19 から GB10 に対応しています。動くかどうかは 7章のテストで確かめます。
 - **NVIDIA の CUTLASS のライブラリ**: `nvidia-cutlass-dsl` の決まりで、CUDA 12 用と 13 用の両方が入ります (実行時に合う方が使われる)。
 - **Elasticsearch のデータ**: 4.4 の注意を読んでください。
+- **scispaCy は入っていません**: どの版も numpy 1 が要り (0.5.5 は spaCy 3.7 を、0.6.2 は numpy<2 を求める)、numpy 2 が要る vLLM と同じ環境に入れられないためです。
+  spaCy 3.7 と numpy 2 の組み合わせは、`uv lock` は通っても `import spacy` で止まります (`numpy.dtype size changed`)。
+  text_preprocess_with_llm と claim-KG の `uv.lock` もこの組み合わせです (2026-10 時点ではどちらも spaCy を import していないので、表に出ていない)。
+  scispaCy が要るときは、相談してください (numpy 1 の別の環境を作るなど)。
 
 ## 9. まだのこと
 

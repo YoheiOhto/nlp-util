@@ -18,9 +18,7 @@ ENV_NAMES = ("nlp", "llm", "train", "es")
 
 # Packages that have no wheel for a CPU and are compiled from source while building (needs the
 # compilers in containers/base.def). A new entry means a slower, riskier build: review it first.
-SOURCE_BUILDS = {
-    ("nmslib-metabrainz", "aarch64"),  # needed by scispacy 0.5.5; no aarch64 wheel on PyPI
-}
+SOURCE_BUILDS: set[tuple[str, str]] = set()
 
 
 def canonical(name: str) -> str:

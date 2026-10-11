@@ -31,7 +31,7 @@ From: nvidia/cuda:{{ CUDA_IMAGE_TAG }}
     ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime
     echo "Asia/Tokyo" > /etc/timezone
 
-    # コンパイラ (sdist しかないパッケージ用。aarch64 の nmslib-metabrainz など) と、よく使う道具
+    # コンパイラ (sdist しかないパッケージ用。今は無いが、利用者が足すとき用) と、よく使う道具
     apt-get update
     apt-get install -y --no-install-recommends \
         ca-certificates curl wget git \
