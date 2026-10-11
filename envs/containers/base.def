@@ -1,0 +1,59 @@
+# ==============================================================================
+# nlp-envs の土台 (base): CUDA 13.0 + コンパイラ + uv + Python 3.12
+# ==============================================================================
+# build.sh が、動いている機械の CPU (x86_64 / aarch64) 用に作る。同じ定義で両方の CPU に使える
+# (nvidia/cuda のイメージは amd64 と arm64 の両方がある)。
+# CUDA 13.0 は、クラスタの NVIDIA ドライバ (580 系) が動かせる一番新しい版。torch 2.13.0 (PyPI) も CUDA 13 系。
+# devel (nvcc 入り) にするのは、vLLM が使う FlashInfer が実行時にカーネルをコンパイルすることがあるため。
+# 版は build.sh が --build-arg で渡す (pyproject.toml の [tool.nlp-envs])。
+# ==============================================================================
+Bootstrap: docker
+From: nvidia/cuda:{{ CUDA_IMAGE_TAG }}
+
+%labels
+    org.nlp-envs.component base
+    org.nlp-envs.cuda-image nvidia/cuda:{{ CUDA_IMAGE_TAG }}
+    org.nlp-envs.uv {{ UV_VERSION }}
+    org.nlp-envs.python {{ PYTHON_VERSION }}
+
+%environment
+    export TZ=Asia/Tokyo
+    export LANG=ja_JP.UTF-8
+    export LC_ALL=ja_JP.UTF-8
+    # uv が入れた Python (読み取り専用の場所)。利用者のプロジェクトの .venv もこの Python を使える
+    export UV_PYTHON_INSTALL_DIR=/opt/uv/python
+    export UV_PYTHON_PREFERENCE=only-managed
+
+%post
+    set -eu
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Asia/Tokyo
+    ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime
+    echo "Asia/Tokyo" > /etc/timezone
+
+    # コンパイラ (sdist しかないパッケージ用。aarch64 の nmslib-metabrainz など) と、よく使う道具
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl wget git \
+        locales vim less htop \
+        build-essential cmake pkg-config \
+        libssl-dev libffi-dev zlib1g-dev libbz2-dev liblzma-dev \
+        libomp-dev libgl1 libglib2.0-0
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+    locale-gen ja_JP.UTF-8
+
+    # uv は版を固定して入れる (install.sh の版付きの URL)
+    curl -LsSf "https://astral.sh/uv/{{ UV_VERSION }}/install.sh" | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
+    uv --version
+
+    # Python も uv で入れ、読み取り専用の共有の場所に置く
+    export UV_PYTHON_INSTALL_DIR=/opt/uv/python
+    uv python install "{{ PYTHON_VERSION }}"
+    chmod -R a+rX /opt/uv
+    # env.def が uv のキャッシュを bind する場所
+    mkdir -p /uv-cache
+
+%test
+    uv --version
+    UV_PYTHON_INSTALL_DIR=/opt/uv/python uv python find "{{ PYTHON_VERSION }}"

@@ -1,0 +1,18 @@
+# ==============================================================================
+# nlp-envs の Elasticsearch (es)
+# ==============================================================================
+# 公式のイメージ (amd64 と arm64 の両方がある) をそのまま SIF にする。版は pyproject.toml の [tool.nlp-envs]。
+# Python のクライアント (elasticsearch) は nlp・llm・train の環境に入っている (同じ 8 系)。
+# 動かし方は es/run_es.sh。
+# ==============================================================================
+Bootstrap: docker
+From: docker.elastic.co/elasticsearch/elasticsearch:{{ ES_VERSION }}
+
+%labels
+    org.nlp-envs.env es
+    org.nlp-envs.version {{ VERSION }}
+    org.nlp-envs.elasticsearch {{ ES_VERSION }}
+    org.nlp-envs.git-commit {{ GIT_COMMIT }}
+
+%test
+    /usr/share/elasticsearch/bin/elasticsearch --version
