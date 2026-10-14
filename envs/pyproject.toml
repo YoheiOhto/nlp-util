@@ -1,0 +1,91 @@
+# ==============================================================================
+# 言語班の共通環境 (nlp-envs)
+# ==============================================================================
+# 1つの uv.lock で、3つの Python の環境を x86_64 と aarch64 (grace) の両方について固定する。
+#   nlp   : ふつうの依存 (dependencies) だけ        uv sync --frozen
+#   llm   : nlp + vLLM・LLM の API                 uv sync --frozen --extra llm
+#   train : nlp + LoRA などの学習 (peft・trl など)    uv sync --frozen --extra train
+# Elasticsearch (es) は Python ではないので containers/es.def だけで作る。
+# 使い方と版の決まりは README.md。版を上げるときは version と CHANGELOG.md を同時に直す。
+# ==============================================================================
+
+[project]
+name = "nlp-envs"
+version = "2026.10.0"
+description = "Shared NLP environments of the Mizuno group language team (nlp, llm, train, es)"
+readme = "README.md"
+requires-python = "==3.12.*"
+
+# --- nlp: 前処理・BERT 系の学習と評価・データ処理 ---------------------------------------------------
+# torch と transformers は llm (vLLM) と同じ版に固定し、nlp と llm で同じ結果になるようにする。
+# vllm 0.31.0 が torch==2.13.0、transformers>=5.10.4,<5.18.0 を求める。
+dependencies = [
+    # 深層学習
+    "torch==2.13.0",
+    "transformers==5.17.0",
+    "tokenizers",
+    "datasets>=4.7",
+    "accelerate",
+    "safetensors",
+    "huggingface-hub",
+    "sentencepiece",
+    "evaluate",
+    # 言語処理。spaCy 3.7 は numpy 1 用に組み立てられていて、numpy 2 では import で止まる (3.8 から numpy 2 対応)。
+    # scispacy はどの版も numpy 1 が要る (0.5.5 は spaCy 3.7、0.6.2 は numpy<2) ので入れない (README の注意)
+    "spacy>=3.8,<3.9",
+    "lxml",
+    # データ処理
+    "numpy",
+    "pandas",
+    "polars",
+    "pyarrow",
+    "duckdb",
+    "scipy",
+    "scikit-learn",
+    # 検索 (サーバーは es の SIF。クライアントはサーバーと同じ 8 系)
+    "elasticsearch>=8.19,<9",
+    # 可視化・ノートブック・小物
+    "matplotlib",
+    "seaborn",
+    "jupyterlab",
+    "ipykernel",
+    "tqdm",
+    "pyyaml",
+    "python-dotenv",
+    "requests",
+    "psutil",
+]
+
+[project.optional-dependencies]
+# --- llm: vLLM での推論・LLM での判定 --------------------------------------------------------------
+llm = [
+    "vllm==0.31.0",
+    "openai",
+    "anthropic",
+    "tiktoken",
+]
+# --- train: LoRA などの軽い学習 -------------------------------------------------------------------
+train = [
+    "peft",
+    "trl>=1.0",
+    "bitsandbytes",
+    "wandb",
+]
+
+# --- SIF の土台と es の版 (build.sh が読む。ここだけを直す) ------------------------------------------
+[tool.nlp-envs]
+# nvidia/cuda のイメージ。amd64 と arm64 の両方がある版にする。CUDA 13.0 = ドライバ 580 系で動く
+cuda-image-tag = "13.0.3-cudnn-devel-ubuntu24.04"
+uv-version = "0.12.0"
+python-version = "3.12"
+# Elasticsearch。8.13 などの古いサーバーのデータを読ませると戻せない形に書き換わる (README の注意)
+es-version = "8.19.23"
+
+[tool.uv]
+# パッケージではなく「環境」なので、このフォルダ自体はインストールしない。
+package = false
+# x86_64 と aarch64 (grace。GB10) の Linux だけを解く。どちらかで入らない版は選ばれない。
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]

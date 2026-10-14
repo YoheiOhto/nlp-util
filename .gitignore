@@ -138,3 +138,10 @@ dmypy.json
 
 # Agent-generated activity logs
 logs/
+
+# nlp-envs (envs/): built images and local environments never go into Git
+*.sif
+*.sif.partial
+envs/.venv/
+nlp-envs-build-*.log
+nlp-envs-test-*.log
