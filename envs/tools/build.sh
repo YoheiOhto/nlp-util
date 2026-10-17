@@ -258,7 +258,7 @@ build_strata() {
         | tee "${ARCH_DIR}/reports/strata-check.txt" || return 1
     write_manifest strata "\"dir\": \"${dir}\"" "\"ref\": \"${NLPENV_STRATA_REF_DEFAULT}\"" \
         "\"commit\": \"$(git -C "${dir}" rev-parse HEAD)\""
-    nlpenv_log "strata: done (install a model with: nlpenv strata setup --model <Q> --context <N>)"
+    nlpenv_log "strata: done (install a model with: nlpenv strata-setup --model <Q> --context <N>)"
 }
 
 preflight_network
