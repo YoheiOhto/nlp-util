@@ -130,7 +130,8 @@ def test_build_profile_failure_is_not_recorded(tmp_path: Path) -> None:
 def test_build_profiles_collects_failures(tmp_path: Path) -> None:
     out = _run_build(tmp_path, "bash -c", "profiles")
     assert out.returncode != 0
-    assert "FAILED: profile:base profile:serve-vllm" in out.stderr + out.stdout
+    failed = next(line for line in (out.stderr + out.stdout).splitlines() if "FAILED:" in line)
+    assert "profile:base" in failed and "profile:serve-vllm" in failed and "profile:bio-scispacy" in failed
 
 
 def test_build_requires_target() -> None:
