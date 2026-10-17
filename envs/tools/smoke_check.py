@@ -45,6 +45,7 @@ PROFILE_IMPORTS: dict[str, dict[str, str]] = {
         "transformers": "transformers",
         "vllm": "vllm",
         "flashinfer": "flashinfer-python",
+        "lm_eval": "lm-eval",
     },
     "serve-vllm-0.26": {
         "torch": "torch",

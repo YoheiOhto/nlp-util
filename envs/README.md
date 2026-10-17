@@ -15,7 +15,7 @@ are detected on the build node; nothing is cross-compiled.
 | name | purpose | key pins (checked 2026-10-17) |
 |---|---|---|
 | `base` | preprocessing, classic ML, HF inference/embedding | torch 2.14.1+cu130, transformers 5.20.1 |
-| `serve-vllm` | latest vLLM generation | vllm 0.31.0, torch 2.13.0 (pinned by vllm), transformers <5.18 |
+| `serve-vllm` | latest vLLM generation and benchmarks | vllm 0.31.0, torch 2.13.0 (pinned by vllm), transformers <5.18, lm-eval 0.4.13 |
 | `serve-vllm-0.26` | frozen stack of KG-with-pubmed / oss-llm-apps | vllm 0.26.0, torch 2.11.0, transformers 5.13.x |
 | `serve-sglang` | SGLang runtime/server | sglang 0.5.22, torch 2.14.1, transformers 5.19.0 |
 | `train-hf` | fast full FT / LoRA / RL | transformers 5.20.1, trl 1.16.0, peft 0.21.2, deepspeed 0.19.7, liger-kernel 0.8.4, kernels 0.17.2; optional flash-attn 2.8.3.post2 |
@@ -23,8 +23,9 @@ are detected on the build node; nothing is cross-compiled.
 | `llamacpp` | GGUF inference, quantization, conversion | llama.cpp v0.7.0 (620d222), CUDA build |
 | `strata` | Qwen3.8-Flash-Next MoE engine | Strata v0.1.45 |
 
-The exact resolved versions are in each `profiles/<name>/uv.lock` (one lock
-covers both architectures).
+No `uv.lock` is kept in the repository. Each build resolves the pins above
+in `.store/<arch>/projects/<name>/` and keeps the resulting lock there as the
+record of what was installed on that architecture.
 
 ## Layout
 
@@ -33,7 +34,7 @@ envs/
   bin/nlpenv              runtime entry point (auto-detects arch)
   base/base.def           CUDA 13.0 + cuDNN devel + uv base image
   llamacpp/llamacpp.def   llama.cpp built from source on top of base
-  profiles/<name>/        uv project per environment (pyproject.toml, uv.lock)
+  profiles/<name>/        uv project per environment (pyproject.toml only)
   tools/common.sh         arch/GPU detection and paths
   tools/build.sh          builds on the current node (inside a job)
   tools/submit_slurm.sh   picks partitions and submits build.sh (Slurm)
@@ -43,6 +44,7 @@ envs/
   .store/                 git-ignored build output
     <arch>/sif/           base.sif, llamacpp.sif
     <arch>/venvs/<name>/  profile venvs
+    <arch>/projects/<name>/ pyproject copy + resolved uv.lock of that build
     <arch>/python/        uv-managed CPython
     <arch>/manifest/      build records (host, commit, SHA-256, CUDA archs)
     <arch>/reports/       smoke-check results
@@ -65,7 +67,7 @@ Builds run on compute nodes. Never run them on a login node.
 envs/tools/submit_slurm.sh -- all
 # Preview the generated job script without submitting
 envs/tools/submit_slurm.sh --dry-run -- all
-# One profile; re-resolve its lock
+# One profile, re-resolved from scratch
 envs/tools/submit_slurm.sh -- --relock profile:serve-vllm
 # train-hf with the source-built flash-attn wheel (long)
 envs/tools/submit_slurm.sh --time 08:00:00 -- --with-flash-attn profile:train-hf
@@ -111,9 +113,11 @@ envs/tools/submit_miyabi.sh --group gg17 --queue short-g --submit -- base profil
 
 - `base`: builds `base.sif` from `nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04`.
   CUDA 13.0 matches the R580 driver.
-- `profile:<name>`: inside `base.sif`, runs `uv lock` (only when the lock is
-  missing or `--relock` is given) and then `uv sync --locked` into
-  `.store/<arch>/venvs/<name>`. It then runs `smoke_check.py`, which imports
+- `profile:<name>`: copies `pyproject.toml` to `.store/<arch>/projects/<name>/`
+  and runs `uv sync` there inside `base.sif`, installing into
+  `.store/<arch>/venvs/<name>`. The store-side lock is reused while
+  `pyproject.toml` is unchanged; a change or `--relock` re-resolves.
+  It then runs `smoke_check.py`, which imports
   the stack and runs bf16 matmul and SDPA on the GPU, checked against a CPU
   reference.
 - `llamacpp`: compiles llama.cpp for the CUDA archs below and verifies that
@@ -134,7 +138,17 @@ The detected GPU's capability is always added to the baseline.
 
 ## Using an environment
 
+Put the entry point on `PATH` once (e.g. in `~/.bashrc`); `nlpenv` resolves
+its checkout through the symlink, so it works from any directory:
+
 ```bash
+mkdir -p ~/.local/bin
+ln -sf /workspace/david01/ohto/1-projects/1-nlp/10-nlp-utils/github/nlp-util/envs/bin/nlpenv ~/.local/bin/nlpenv
+```
+
+```bash
+envs/bin/nlpenv run serve-vllm -- lm_eval --model vllm --model_args pretrained=Qwen/Qwen3-8B --tasks mmlu
+
 envs/bin/nlpenv info                       # arch, GPU, build status
 envs/bin/nlpenv list
 envs/bin/nlpenv run serve-vllm -- vllm serve Qwen/Qwen3-8B --port 8000
@@ -185,7 +199,6 @@ envs/bin/nlpenv run strata -- ./setup.sh --port 8080            # starts the ser
    in `tools/common.sh` for CUDA, llama.cpp or Strata.
 2. Rebuild with `--relock` (profiles) or `--rebuild` (images) on every
    architecture you use.
-3. Commit the updated `uv.lock`.
 
 Keep `serve-vllm-0.26` frozen: it reproduces existing results.
 

@@ -9,6 +9,8 @@ dependencies = [
     "vllm==0.31.0",
     "torch==2.13.0",
     "openai",
+    # Benchmark runner with the vllm backend (lm_eval --model vllm ...).
+    "lm-eval==0.4.13",
     "huggingface-hub[hf-xet]",
     "datasets",
     "pandas",

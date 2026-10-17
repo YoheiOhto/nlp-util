@@ -119,14 +119,12 @@ def _run_build(tmp_path: Path, fail_on: str, *targets: str) -> subprocess.Comple
 
 def test_build_profile_failure_is_not_recorded(tmp_path: Path) -> None:
     # A failing "uv sync" must fail the target and leave no manifest behind.
-    lock = ENVS / "profiles" / "base" / "uv.lock"
-    if not lock.exists():
-        # Without a lock build.sh would first run "uv lock"; make that fail too.
-        out = _run_build(tmp_path, "uv lock", "profile:base")
-    else:
-        out = _run_build(tmp_path, "uv sync", "profile:base")
+    out = _run_build(tmp_path, "uv sync", "profile:base")
     assert out.returncode != 0
     assert not list((tmp_path / "store").glob("*/manifest/profile-base.json"))
+    # Locks live in the store copy, never in the repository.
+    assert list((tmp_path / "store").glob("*/projects/base/pyproject.toml"))
+    assert not (ENVS / "profiles" / "base" / "uv.lock").exists()
 
 
 def test_build_profiles_collects_failures(tmp_path: Path) -> None:

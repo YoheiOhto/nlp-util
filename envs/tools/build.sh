@@ -15,7 +15,8 @@
 #   strata            clone Strata + its venv + hardware check (no model download)
 #   all               base, profiles, llamacpp, strata
 # Options:
-#   --relock          re-resolve uv.lock (otherwise an existing lock is enforced)
+#   --relock          drop the store-side uv.lock and re-resolve (also done
+#                     automatically when pyproject.toml changed)
 #   --rebuild         rebuild SIF images even if they exist
 #   --with-flash-attn also build the flash-attn wheel for train-hf (1-3 h)
 #   --no-smoke        skip smoke checks (not recommended)
@@ -164,19 +165,22 @@ build_profile() {
     local proj="${NLPENV_ENVS_DIR}/profiles/${name}"
     local venv
     venv="$(nlpenv_venv_path "${ARCH}" "${name}")"
-    local -a sync_args=(--locked)
+    local -a sync_args=()
     if [[ "${name}" == "train-hf" && ${WITH_FLASH} -eq 1 ]]; then
         sync_args+=(--group flash)
     fi
-    # Locking touches the shared checkout; serialize it across arch jobs.
-    exec 8>"${STORE}/.lock-${name}"
-    flock 8
-    if [[ ${RELOCK} -eq 1 || ! -f "${proj}/uv.lock" ]]; then
-        nlpenv_log "profile:${name}: resolving uv.lock"
-        container_exec "${BASE_SIF}" bash -c "cd '${proj}' && uv lock" || return 1
+    # uv sync always writes uv.lock next to pyproject.toml. Locks are not kept
+    # in the repository, so sync from a per-arch copy inside the store; the
+    # resolved lock stays there (git-ignored) as the record of this build.
+    local work="${ARCH_DIR}/projects/${name}"
+    mkdir -p "${work}"
+    if [[ ${RELOCK} -eq 1 ]] || ! cmp -s "${proj}/pyproject.toml" "${work}/pyproject.toml"; then
+        # A changed pyproject (or --relock) re-resolves from scratch.
+        rm -f "${work}/uv.lock"
     fi
-    flock -u 8
-    nlpenv_log "profile:${name}: syncing ${venv} (${sync_args[*]})"
+    cp -f "${proj}/pyproject.toml" "${work}/pyproject.toml"
+    proj="${work}"
+    nlpenv_log "profile:${name}: syncing ${venv} from ${proj} (${sync_args[*]:-default groups})"
     # MAX_JOBS bounds nvcc parallelism for source builds (~6 GiB per job).
     local mem_gib
     mem_gib=$(awk '/MemAvailable/ {print int($2/1048576)}' /proc/meminfo)
@@ -185,7 +189,7 @@ build_profile() {
     ((max_jobs < 1)) && max_jobs=1
     container_exec --env "UV_PROJECT_ENVIRONMENT=${venv}" --env "MAX_JOBS=${max_jobs}" \
         --env "FLASH_ATTENTION_FORCE_BUILD=TRUE" \
-        "${BASE_SIF}" bash -c "cd '${proj}' && uv sync ${sync_args[*]}" || return 1
+        "${BASE_SIF}" bash -c "cd '${proj}' && uv sync ${sync_args[*]:-}" || return 1
     write_manifest "profile-${name}" "\"venv\": \"${venv}\"" \
         "\"uv_lock_sha256\": \"$(sha256_of "${proj}/uv.lock")\"" "\"with_flash_attn\": ${WITH_FLASH}"
     if [[ ${SMOKE} -eq 1 ]]; then
