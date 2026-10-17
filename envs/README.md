@@ -14,7 +14,8 @@ are detected on the build node; nothing is cross-compiled.
 
 | name | purpose | key pins (checked 2026-10-17) |
 |---|---|---|
-| `base` | preprocessing, classic ML, HF inference/embedding | torch 2.14.1+cu130, transformers 5.20.1 |
+| `base` | preprocessing, classic ML, HF inference/embedding | torch 2.14.1+cu130, transformers 5.20.1, spacy 3.8 (numpy 2) |
+| `bio-scispacy` | biomedical spaCy (scispacy), CPU only | scispacy 0.6.2, spacy <3.9, numpy <2 (cannot share a venv with numpy 2) |
 | `serve-vllm` | latest vLLM generation and benchmarks | vllm 0.31.0, torch 2.13.0 (pinned by vllm), transformers <5.18, lm-eval 0.4.13 |
 | `serve-vllm-0.26` | frozen stack of KG-with-pubmed / oss-llm-apps | vllm 0.26.0, torch 2.11.0, transformers 5.13.x |
 | `serve-sglang` | SGLang runtime/server | sglang 0.5.22, torch 2.14.1, transformers 5.19.0 |

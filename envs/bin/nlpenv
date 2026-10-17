@@ -12,7 +12,7 @@
 #   nlpenv shell <env> [opts]           interactive shell in an environment
 #   nlpenv strata-setup --model Q --context N [setup.py args]
 #                                       download/install a Strata model (no start)
-# <env>: base | serve-vllm | serve-vllm-0.26 | serve-sglang | train-hf |
+# <env>: base | bio-scispacy | serve-vllm | serve-vllm-0.26 | serve-sglang | train-hf |
 #        train-unsloth | llamacpp | strata
 # opts:
 #   --no-gpu        do not pass --nv

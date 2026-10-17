@@ -37,8 +37,13 @@ PROFILE_IMPORTS: dict[str, dict[str, str]] = {
         "sklearn": "scikit-learn",
         "xgboost": "xgboost",
         "spacy": "spacy",
-        "scispacy": "scispacy",
         "elasticsearch": "elasticsearch",
+    },
+    "bio-scispacy": {
+        "numpy": "numpy",
+        "spacy": "spacy",
+        "scispacy": "scispacy",
+        "nmslib": "nmslib-metabrainz",
     },
     "serve-vllm": {
         "torch": "torch",
@@ -177,7 +182,8 @@ def main() -> int:
             results,
         )
     optional = {dist: _version(dist) for dist in OPTIONAL_IMPORTS.get(args.profile, {}).values()}
-    if ok:
+    # CPU-only profiles (no torch) have nothing to run on the GPU.
+    if ok and "torch" in PROFILE_IMPORTS[args.profile]:
         ok &= _gpu_checks(args.require_gpu, results)
 
     report = {

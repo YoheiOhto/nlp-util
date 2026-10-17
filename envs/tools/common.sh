@@ -19,7 +19,7 @@ NLPENV_LLAMACPP_COMMIT_DEFAULT="620d2225cc436ab0b001e3200e590e3b286ef9ab"
 NLPENV_STRATA_REF_DEFAULT="v0.1.45"
 
 # Profiles that are uv projects under envs/profiles/<name>.
-NLPENV_PROFILES=(base serve-vllm serve-vllm-0.26 serve-sglang train-hf train-unsloth)
+NLPENV_PROFILES=(base bio-scispacy serve-vllm serve-vllm-0.26 serve-sglang train-hf train-unsloth)
 
 nlpenv_die() {
     echo "[nlpenv] ERROR: $*" >&2
