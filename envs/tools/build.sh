@@ -251,7 +251,10 @@ build_strata() {
         || nlpenv_die "strata checkout is at '${actual}', expected ${NLPENV_STRATA_REF_DEFAULT}"
     nlpenv_log "strata: ${NLPENV_STRATA_REF_DEFAULT} hardware check (no model download)"
     # STRATA_UV=1 makes setup.sh create its venv with uv instead of sudo apt.
-    container_exec --env STRATA_UV=1 "${BASE_SIF}" bash -c "cd '${dir}' && ./setup.sh --check" \
+    # setup.sh calls "uv venv --managed-python", which uv rejects together with
+    # the UV_PYTHON_PREFERENCE that container_exec sets for the profiles.
+    container_exec --env STRATA_UV=1 "${BASE_SIF}" \
+        bash -c "unset UV_PYTHON_PREFERENCE; cd '${dir}' && ./setup.sh --check" \
         | tee "${ARCH_DIR}/reports/strata-check.txt" || return 1
     write_manifest strata "\"dir\": \"${dir}\"" "\"ref\": \"${NLPENV_STRATA_REF_DEFAULT}\"" \
         "\"commit\": \"$(git -C "${dir}" rev-parse HEAD)\""
