@@ -1,0 +1,45 @@
+# Profile "serve-vllm-0.26": frozen copy of the stack that KG-with-pubmed and
+# oss-llm-apps run today (vllm 0.26.0 / torch 2.11.0+cu130 / transformers 5.13).
+# Use it to reproduce existing results; do not bump versions here.
+[project]
+name = "nlpenv-serve-vllm-0-26"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "vllm==0.26.0",
+    "torch==2.11.0",
+    # transformers >=5.14 breaks gemma-4 in vllm 0.26 (per-layer head_dim API).
+    "transformers>=5.13.0,<5.14",
+    # vllm 0.26.0 pins nvidia-cutlass-dsl==4.6.0; quack-kernels 0.5.x calls the
+    # removed cute.core.ThrMma.
+    "quack-kernels>=0.6.0",
+    "nvidia-nccl-cu12>=2.30.7",
+    "openai",
+    "huggingface-hub",
+    "datasets",
+    "pandas",
+    "polars",
+    "pyarrow",
+    "tqdm",
+    "pynvml",
+    "pytest",
+]
+
+[tool.uv]
+package = false
+# Lock once for both CPU families so x86_64 (David) and aarch64 (Grace, Miyabi-G)
+# install the same resolved versions.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }

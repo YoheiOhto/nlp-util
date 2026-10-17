@@ -12,6 +12,7 @@ Please contact tadahaya[at]gmail.com before publishing your paper using the cont
 
 ## release note
 2025/11/28 このリポジトリ内に医療系言語モデル(MLM)のベンチマークを行う `benchmark_test` ディレクトリを作成しました。ベンチマークや実行例の詳細は `benchmark_test/README.md` を参照してください。  
+2026/10/17 vLLM・SGLang・llama.cpp・Strata・HF学習・Unslothの環境をまとめた `envs/` を作成しました。x86_64/aarch64を自動判定し、Slurm・Miyabiでビルドできます。詳細は `envs/README.md` を参照してください。  
   
 ## Organization
 ------------  

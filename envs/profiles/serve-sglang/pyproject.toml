@@ -1,0 +1,37 @@
+# Profile "serve-sglang": SGLang server/runtime (RadixAttention, structured output).
+# sglang 0.5.22 pins torch==2.14.1, transformers==5.19.0, sglang-kernel==0.4.9
+# and flashinfer_python[cu13]==0.7.1 (PyPI metadata checked 2026-10-17).
+[project]
+name = "nlpenv-serve-sglang"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "sglang==0.5.22",
+    "torch==2.14.1",
+    "openai",
+    "huggingface-hub[hf-xet]",
+    "datasets",
+    "pandas",
+    "pyarrow",
+    "tqdm",
+    "pytest",
+]
+
+[tool.uv]
+package = false
+# Lock once for both CPU families so x86_64 (David) and aarch64 (Grace, Miyabi-G)
+# install the same resolved versions.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }

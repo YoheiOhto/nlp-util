@@ -1,0 +1,2 @@
+# Built artifacts (SIF images, venvs, caches, logs, reports) live here per arch.
+/.store/

@@ -1,0 +1,37 @@
+# Profile "train-unsloth": Unsloth LoRA/QLoRA fine-tuning (low VRAM, fast).
+# unsloth 2026.10.6 requires torch<2.15; xformers is pulled on x86_64 only.
+[project]
+name = "nlpenv-train-unsloth"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "unsloth==2026.10.6",
+    "torch==2.14.1",
+    "bitsandbytes",
+    "datasets",
+    "huggingface-hub[hf-xet]",
+    "pandas",
+    "pyarrow",
+    "wandb",
+    "tqdm",
+    "pytest",
+]
+
+[tool.uv]
+package = false
+# Lock once for both CPU families so x86_64 (David) and aarch64 (Grace, Miyabi-G)
+# install the same resolved versions.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }

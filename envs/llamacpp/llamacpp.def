@@ -1,0 +1,67 @@
+# llama.cpp built from source with CUDA on top of the nlp-util base image.
+#
+# Build args (passed by envs/tools/build.sh):
+#   BASE_SIF      : path to the arch-matching base.sif
+#   LLAMACPP_REF  : git tag to build
+#   LLAMACPP_COMMIT : expected commit of that tag (verified, build fails on mismatch)
+#   CUDA_ARCHS    : CMake CUDA architectures, e.g. "80;86;89;90;120"
+#
+# Installs binaries (llama-server, llama-cli, llama-quantize, llama-bench, ...)
+# into /opt/llama.cpp/bin and a small venv for convert_hf_to_gguf.py at
+# /opt/llama.cpp/venv.
+Bootstrap: localimage
+From: {{ BASE_SIF }}
+
+%arguments
+    BASE_SIF=base.sif
+    LLAMACPP_REF=v0.7.0
+    LLAMACPP_COMMIT=620d2225cc436ab0b001e3200e590e3b286ef9ab
+    CUDA_ARCHS=120
+
+%labels
+    org.nlp-util.image llamacpp
+    org.nlp-util.llamacpp-ref {{ LLAMACPP_REF }}
+    org.nlp-util.llamacpp-commit {{ LLAMACPP_COMMIT }}
+    org.nlp-util.cuda-archs {{ CUDA_ARCHS }}
+
+%environment
+    export PATH=/opt/llama.cpp/bin:/opt/llama.cpp/venv/bin:${PATH}
+    export LLAMACPP_SRC=/opt/llama.cpp/src
+
+%post
+    set -eu
+    git clone --depth 1 --branch "{{ LLAMACPP_REF }}" https://github.com/ggml-org/llama.cpp /opt/llama.cpp/src
+    cd /opt/llama.cpp/src
+    actual="$(git rev-parse HEAD)"
+    if [ "${actual}" != "{{ LLAMACPP_COMMIT }}" ]; then
+        echo "llama.cpp {{ LLAMACPP_REF }} resolved to ${actual}, expected {{ LLAMACPP_COMMIT }}" >&2
+        exit 1
+    fi
+
+    # The devel image only ships the driver stub; link against it at build time.
+    export LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LIBRARY_PATH:-}
+    cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DGGML_CUDA=ON \
+        -DGGML_NATIVE=OFF \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_CUDA_ARCHITECTURES="{{ CUDA_ARCHS }}" \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DCMAKE_INSTALL_PREFIX=/opt/llama.cpp
+    cmake --build build -j "$(nproc)"
+    cmake --install build
+    # Keep the conversion scripts next to the binaries.
+    cp convert_hf_to_gguf.py convert_lora_to_gguf.py /opt/llama.cpp/bin/
+
+    UV_PYTHON_INSTALL_DIR=/opt/llama.cpp/python uv venv --clear --python 3.12 /opt/llama.cpp/venv
+    VIRTUAL_ENV=/opt/llama.cpp/venv uv pip install \
+        --index-strategy unsafe-best-match \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        -r requirements/requirements-convert_hf_to_gguf.txt
+    rm -rf build /root/.cache
+
+%test
+    # CUDA binaries need the host driver (libcuda) and cannot start during the
+    # build; build.sh runs llama-server under --nv after the build instead.
+    test -x /opt/llama.cpp/bin/llama-server
+    /opt/llama.cpp/venv/bin/python -c "import gguf, transformers; print('gguf ok')"

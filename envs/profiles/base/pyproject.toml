@@ -1,0 +1,67 @@
+# Profile "base": data handling, classic ML, Hugging Face inference/embedding.
+# The default for preprocessing, evaluation and small-model work.
+[project]
+name = "nlpenv-base"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.14.1",
+    "torchvision",
+    "transformers==5.20.1",
+    "tokenizers",
+    "datasets",
+    "huggingface-hub[hf-xet]",
+    "accelerate",
+    "evaluate",
+    "safetensors",
+    "sentencepiece",
+    "sentence-transformers",
+    "numpy",
+    "pandas",
+    "polars",
+    "pyarrow",
+    "duckdb",
+    "scipy",
+    "scikit-learn",
+    "lightgbm",
+    "xgboost",
+    # xgboost pulls an old nvidia-nccl-cu12 lacking ncclDevCommDestroy, which
+    # broke "import torch" in oss-llm-apps; keep the fixed lower bound.
+    "nvidia-nccl-cu12>=2.30.7",
+    "optuna",
+    "matplotlib",
+    "seaborn",
+    "plotly",
+    "spacy",
+    "scispacy",
+    "lxml",
+    "elasticsearch>=8.0.0,<9.0.0",
+    "requests",
+    "python-dotenv",
+    "tqdm",
+    "psutil",
+    "pynvml",
+    "wandb",
+    "jupyterlab",
+    "ipython",
+    "pytest",
+]
+
+[tool.uv]
+package = false
+# Lock once for both CPU families so x86_64 (David) and aarch64 (Grace, Miyabi-G)
+# install the same resolved versions.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }

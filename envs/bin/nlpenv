@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# nlpenv: one entry point for every nlp-util environment.
+#
+# Detects the CPU architecture of the current node and runs the command in
+# the matching container + venv from envs/.store/<arch>/. Use it inside
+# Slurm/PBS jobs; heavy work must not run on login nodes.
+#
+# Usage:
+#   nlpenv info                         arch, GPU, store and build status
+#   nlpenv list                         profiles and whether they are built here
+#   nlpenv run <env> [opts] -- <cmd>    run a command in an environment
+#   nlpenv shell <env> [opts]           interactive shell in an environment
+#   nlpenv strata-setup --model Q --context N [setup.py args]
+#                                       download/install a Strata model (no start)
+# <env>: base | serve-vllm | serve-vllm-0.26 | serve-sglang | train-hf |
+#        train-unsloth | llamacpp | strata
+# opts:
+#   --no-gpu        do not pass --nv
+#   --bind SRC[:DST] extra bind mount (repeatable)
+# Examples:
+#   nlpenv run serve-vllm -- vllm serve Qwen/Qwen3-8B --port 8000
+#   nlpenv run train-hf -- accelerate launch train.py
+#   nlpenv run llamacpp -- llama-server -m model.gguf -ngl 999 --port 8080
+#   nlpenv run serve-vllm-0.26 --bind /workspace/david01/ohto/data -- python exp.py
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# shellcheck source=../tools/common.sh
+source "${SELF_DIR}/../tools/common.sh"
+
+ARCH="$(nlpenv_detect_arch)"
+ARCH_DIR="$(nlpenv_arch_dir "${ARCH}")"
+SYS_PATH="/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+usage() {
+    sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+status_of() {
+    # Print "built ok", "built NG", "built (no smoke report)" or "not built".
+    local env="$1" report
+    case "${env}" in
+        llamacpp) [[ -f "$(nlpenv_sif_path "${ARCH}" llamacpp)" ]] && echo built || echo "not built"; return ;;
+        strata) [[ -d "${ARCH_DIR}/strata/.git" ]] && echo built || echo "not built"; return ;;
+    esac
+    [[ -x "$(nlpenv_venv_path "${ARCH}" "${env}")/bin/python" ]] || { echo "not built"; return; }
+    report="${ARCH_DIR}/reports/${env}.json"
+    if [[ ! -f "${report}" ]]; then
+        echo "built (no smoke report)"
+    # The first "ok" key in the report is the overall result.
+    elif grep -m1 '"ok":' "${report}" | grep -q true; then
+        echo "built, smoke ok"
+    else
+        echo "built, smoke FAILED (${report})"
+    fi
+}
+
+cmd_list() {
+    local env
+    echo "arch=${ARCH} store=$(nlpenv_store)"
+    for env in "${NLPENV_PROFILES[@]}" llamacpp strata; do
+        printf '  %-16s %s\n' "${env}" "$(status_of "${env}")"
+    done
+}
+
+cmd_info() {
+    echo "host        : $(hostname)"
+    echo "arch        : ${ARCH}"
+    echo "gpu caps    : $(nlpenv_detect_gpu_caps || true)"
+    echo "cuda archs  : $(nlpenv_cuda_arch_list "${ARCH}")"
+    echo "store       : $(nlpenv_store)"
+    echo "hf home     : $(nlpenv_hf_home)"
+    echo "base sif    : $(nlpenv_sif_path "${ARCH}" base)"
+    if [[ -d "${ARCH_DIR}/manifest" ]]; then
+        echo "manifests   :"
+        ls -1 "${ARCH_DIR}/manifest" 2>/dev/null | sed 's/^/  /'
+    fi
+    cmd_list
+}
+
+# Build the apptainer argv for an environment into the global EXEC array.
+prepare_exec() {
+    local env="$1"
+    shift
+    local use_gpu=1
+    local -a extra_binds=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-gpu) use_gpu=0 ;;
+            --bind) extra_binds+=(--bind "$2"); shift ;;
+            *) nlpenv_die "unknown option $1" ;;
+        esac
+        shift
+    done
+    nlpenv_require_apptainer
+    local -a binds envs fwd
+    mapfile -t binds < <(nlpenv_bind_args)
+    mapfile -t envs < <(nlpenv_cache_env_args "${ARCH}")
+    mapfile -t fwd < <(nlpenv_forward_env_args)
+    EXEC=(apptainer exec --cleanenv "${binds[@]}" "${extra_binds[@]}" "${envs[@]}" "${fwd[@]}")
+    ((use_gpu)) && EXEC+=(--nv)
+
+    local sif
+    case "${env}" in
+        llamacpp)
+            sif="$(nlpenv_sif_path "${ARCH}" llamacpp)"
+            EXEC+=(--env "PATH=/opt/llama.cpp/bin:/opt/llama.cpp/venv/bin:${SYS_PATH}")
+            ;;
+        strata)
+            sif="$(nlpenv_sif_path "${ARCH}" base)"
+            [[ -d "${ARCH_DIR}/strata/.git" ]] || nlpenv_die "strata not built for ${ARCH}: run build.sh strata"
+            EXEC+=(--pwd "${ARCH_DIR}/strata" --env STRATA_UV=1
+                --env "UV_PYTHON_INSTALL_DIR=${ARCH_DIR}/python" --env "UV_CACHE_DIR=$(nlpenv_store)/cache/uv")
+            ;;
+        *)
+            nlpenv_require_profile "${env}"
+            sif="$(nlpenv_sif_path "${ARCH}" base)"
+            local venv
+            venv="$(nlpenv_venv_path "${ARCH}" "${env}")"
+            [[ -x "${venv}/bin/python" ]] \
+                || nlpenv_die "${env} is not built for ${ARCH} (${venv}); see envs/README.md"
+            EXEC+=(--env "VIRTUAL_ENV=${venv}" --env "PATH=${venv}/bin:${SYS_PATH}")
+            ;;
+    esac
+    [[ -f "${sif}" ]] || nlpenv_die "missing image ${sif}; run build.sh for ${ARCH} first"
+    EXEC+=("${sif}")
+}
+
+[[ $# -gt 0 ]] || { usage; exit 1; }
+sub="$1"
+shift
+case "${sub}" in
+    -h | --help | help) usage ;;
+    info) cmd_info ;;
+    list) cmd_list ;;
+    run)
+        [[ $# -gt 0 ]] || nlpenv_die "run needs an environment name"
+        env="$1"
+        shift
+        opts=()
+        while [[ $# -gt 0 && "$1" != "--" ]]; do
+            opts+=("$1")
+            shift
+        done
+        [[ "${1:-}" == "--" ]] || nlpenv_die "separate the command with -- (nlpenv run ${env} -- <cmd>)"
+        shift
+        [[ $# -gt 0 ]] || nlpenv_die "no command given"
+        prepare_exec "${env}" "${opts[@]}"
+        exec "${EXEC[@]}" "$@"
+        ;;
+    shell)
+        [[ $# -gt 0 ]] || nlpenv_die "shell needs an environment name"
+        env="$1"
+        shift
+        prepare_exec "${env}" "$@"
+        exec "${EXEC[@]}" bash
+        ;;
+    strata-setup)
+        prepare_exec strata
+        extra=()
+        # Linux prebuilt engines are x64 only; aarch64 must compile.
+        [[ "${ARCH}" == aarch64 ]] && extra+=(--build)
+        mkdir -p "${ARCH_DIR}/strata-models"
+        exec "${EXEC[@]}" ./setup.sh --yes --no-start --models-dir "${ARCH_DIR}/strata-models" \
+            "${extra[@]}" "$@"
+        ;;
+    *) nlpenv_die "unknown subcommand '${sub}' (try: nlpenv help)" ;;
+esac
