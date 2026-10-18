@@ -50,12 +50,12 @@ envs/
     <arch>/manifest/      build records (host, commit, SHA-256, CUDA archs)
     <arch>/reports/       smoke-check results
     <arch>/cache/         Triton / inductor / vLLM / FlashInfer caches
-    cache/uv, cache/hf    uv wheel cache, Hugging Face cache
+    cache/uv              uv wheel cache
     logs/<arch>/          build logs and generated job scripts
 ```
 
-Set `NLPENV_STORE` to put `.store` elsewhere. `HF_HOME`, when already set,
-is reused instead of `.store/cache/hf` so existing model downloads are shared.
+Set `NLPENV_STORE` to put `.store` elsewhere. Models use `HF_HOME` when set,
+else the standard `~/.cache/huggingface`, so existing downloads are shared.
 
 ## Building
 

@@ -100,10 +100,10 @@ nlpenv_venv_path() {
     echo "$(nlpenv_arch_dir "$1")/venvs/$2"
 }
 
-# Hugging Face cache. An existing HF_HOME wins so models already downloaded
-# for other projects are reused; otherwise use the store.
+# Hugging Face cache: HF_HOME if set, else the standard ~/.cache/huggingface,
+# so models already downloaded by other projects are reused.
 nlpenv_hf_home() {
-    echo "${HF_HOME:-$(nlpenv_store)/cache/hf}"
+    echo "${HF_HOME:-${HOME}/.cache/huggingface}"
 }
 
 nlpenv_require_profile() {
