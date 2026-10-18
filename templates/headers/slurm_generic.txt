@@ -1,0 +1,10 @@
+#SBATCH --job-name=__EXP_NAME__
+#SBATCH --partition=__PARTITION__
+#SBATCH --output=__OUTPUT_PATTERN__
+#SBATCH --error=__ERROR_PATTERN__
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:__GPU__
+#SBATCH --cpus-per-task=__CPU__
+#SBATCH --mem=__MEM__
+#SBATCH --time=__TIME__
+#SBATCH --export=ALL
