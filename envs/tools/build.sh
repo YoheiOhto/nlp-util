@@ -11,6 +11,8 @@
 #   base              CUDA + uv base SIF (needed by every other target)
 #   profile:<name>    one uv venv profile (see envs/profiles/)
 #   profiles          every profile
+#   smoke:<name>      only re-run the smoke check of an already built profile
+#                     (e.g. in a short GPU job after a CPU-only compile job)
 #   llamacpp          llama.cpp CUDA SIF
 #   strata            clone Strata + its venv + hardware check (no model download)
 #   all               base, profiles, llamacpp, strata
@@ -18,10 +20,16 @@
 #   --relock          drop the store-side uv.lock and re-resolve (also done
 #                     automatically when pyproject.toml changed)
 #   --rebuild         rebuild SIF images even if they exist
-#   --with-flash-attn also build the flash-attn wheel for train-hf (1-3 h)
+#   --with-flash-attn also build the flash-attn wheel from source for the
+#                     profiles with a "flash" group (train-hf, allinone; 1-3 h
+#                     each). Without it, uv sync removes a previously
+#                     installed flash-attn from those venvs.
 #   --no-smoke        skip smoke checks (not recommended)
 #   --require-gpu     fail smoke checks without a GPU (default: auto, required
 #                     whenever nvidia-smi sees a GPU)
+# Environment:
+#   NLPENV_NO_GPU=1   the job has no GPU (set by submit_slurm.sh --gpus 0):
+#                     GPU detection is skipped and CUDA is hidden from smoke checks
 set -euo pipefail
 
 # shellcheck source=common.sh
@@ -40,7 +48,7 @@ while [[ $# -gt 0 ]]; do
         --with-flash-attn) WITH_FLASH=1 ;;
         --no-smoke) SMOKE=0 ;;
         --require-gpu) REQUIRE_GPU=1 ;;
-        -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
+        -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
         -*) nlpenv_die "unknown option $1" ;;
         *) TARGETS+=("$1") ;;
     esac
@@ -132,6 +140,8 @@ container_exec() {
     mapfile -t binds < <(nlpenv_bind_args)
     mapfile -t envs < <(nlpenv_cache_env_args "${ARCH}")
     mapfile -t fwd < <(nlpenv_forward_env_args)
+    # A CPU-only job must not touch the node's GPU (other jobs may own it).
+    [[ "${NLPENV_NO_GPU:-0}" == 1 ]] && fwd+=(--env "CUDA_VISIBLE_DEVICES=")
     apptainer exec --nv --cleanenv "${binds[@]}" "${envs[@]}" "${fwd[@]}" \
         --env "UV_CACHE_DIR=${STORE}/cache/uv" \
         --env "UV_PYTHON_INSTALL_DIR=${ARCH_DIR}/python" \
@@ -166,8 +176,10 @@ build_profile() {
     local venv
     venv="$(nlpenv_venv_path "${ARCH}" "${name}")"
     local -a sync_args=()
-    if [[ "${name}" == "train-hf" && ${WITH_FLASH} -eq 1 ]]; then
+    local flash=0
+    if nlpenv_is_flash_profile "${name}" && [[ ${WITH_FLASH} -eq 1 ]]; then
         sync_args+=(--group flash)
+        flash=1
     fi
     # uv sync always writes uv.lock next to pyproject.toml. Locks are not kept
     # in the repository, so sync from a per-arch copy inside the store; the
@@ -181,17 +193,29 @@ build_profile() {
     cp -f "${proj}/pyproject.toml" "${work}/pyproject.toml"
     proj="${work}"
     nlpenv_log "profile:${name}: syncing ${venv} from ${proj} (${sync_args[*]:-default groups})"
-    # MAX_JOBS bounds nvcc parallelism for source builds (~6 GiB per job).
-    local mem_gib
-    mem_gib=$(awk '/MemAvailable/ {print int($2/1048576)}' /proc/meminfo)
-    local max_jobs=$((mem_gib / 6))
-    ((max_jobs > CPUS)) && max_jobs=${CPUS}
-    ((max_jobs < 1)) && max_jobs=1
+    # MAX_JOBS bounds parallel nvcc processes for source builds by the job's
+    # memory (flash-attn peaks at ~9 GiB per process with 4 nvcc threads);
+    # NVCC_THREADS fills the remaining CPUs.
+    local mem_mib jobs_threads max_jobs nvcc_threads flash_archs=""
+    mem_mib="$(nlpenv_job_mem_mib)" || return 1
+    jobs_threads="$(nlpenv_compile_jobs "${CPUS}" "${mem_mib}" 9)" || return 1
+    read -r max_jobs nvcc_threads <<<"${jobs_threads}"
+    if [[ ${flash} -eq 1 ]]; then
+        # flash-attn reads FLASH_ATTN_CUDA_ARCHS, not TORCH_CUDA_ARCH_LIST.
+        flash_archs="$(nlpenv_flash_attn_archs "${CUDA_ARCH_LIST}")" || return 1
+    fi
+    nlpenv_log "profile:${name}: MAX_JOBS=${max_jobs} NVCC_THREADS=${nvcc_threads} (mem=${mem_mib}MiB cpus=${CPUS}) FLASH_ATTN_CUDA_ARCHS=${flash_archs:-n/a}"
+    local t0=${SECONDS}
     container_exec --env "UV_PROJECT_ENVIRONMENT=${venv}" --env "MAX_JOBS=${max_jobs}" \
+        --env "NVCC_THREADS=${nvcc_threads}" \
         --env "FLASH_ATTENTION_FORCE_BUILD=TRUE" \
+        ${flash_archs:+--env "FLASH_ATTN_CUDA_ARCHS=${flash_archs}"} \
         "${BASE_SIF}" bash -c "cd '${proj}' && uv sync ${sync_args[*]:-}" || return 1
+    nlpenv_log "profile:${name}: uv sync took $((SECONDS - t0)) s"
     write_manifest "profile-${name}" "\"venv\": \"${venv}\"" \
-        "\"uv_lock_sha256\": \"$(sha256_of "${proj}/uv.lock")\"" "\"with_flash_attn\": ${WITH_FLASH}"
+        "\"uv_lock_sha256\": \"$(sha256_of "${proj}/uv.lock")\"" "\"with_flash_attn\": ${flash}" \
+        "\"flash_attn_cuda_archs\": \"${flash_archs}\"" \
+        "\"sync_seconds\": $((SECONDS - t0))"
     if [[ ${SMOKE} -eq 1 ]]; then
         smoke_profile "${name}" || return 1
     fi
@@ -200,8 +224,11 @@ build_profile() {
 
 smoke_profile() {
     local name="$1"
+    nlpenv_require_profile "${name}"
+    require_base
     local venv report
     venv="$(nlpenv_venv_path "${ARCH}" "${name}")"
+    [[ -x "${venv}/bin/python" ]] || nlpenv_die "profile ${name} is not built for ${ARCH} (${venv})"
     report="${ARCH_DIR}/reports/${name}.json"
     local -a gpu_flag=()
     [[ ${REQUIRE_GPU} -eq 1 ]] && gpu_flag=(--require-gpu)
@@ -261,7 +288,12 @@ build_strata() {
     nlpenv_log "strata: done (install a model with: nlpenv strata-setup --model <Q> --context <N>)"
 }
 
-preflight_network
+# Smoke-only runs install nothing and need no network.
+NEED_NET=0
+for t in "${TARGETS[@]}"; do
+    [[ "${t}" == smoke:* ]] || NEED_NET=1
+done
+[[ ${NEED_NET} -eq 1 ]] && preflight_network
 FAILED=()
 run_target() {
     local t="$1"
@@ -270,6 +302,7 @@ run_target() {
         llamacpp) build_llamacpp ;;
         strata) build_strata ;;
         profile:*) build_profile "${t#profile:}" ;;
+        smoke:*) smoke_profile "${t#smoke:}" ;;
         profiles)
             local p
             for p in "${NLPENV_PROFILES[@]}"; do

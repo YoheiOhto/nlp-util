@@ -21,6 +21,7 @@ are detected on the build node; nothing is cross-compiled.
 | `serve-sglang` | SGLang runtime/server | sglang 0.5.22, torch 2.14.1, transformers 5.19.0 |
 | `train-hf` | fast full FT / LoRA / RL | transformers 5.20.1, trl 1.16.0, peft 0.21.2, deepspeed 0.19.7, liger-kernel 0.8.4, kernels 0.17.2; optional flash-attn 2.8.3.post2 |
 | `train-unsloth` | Unsloth LoRA/QLoRA | unsloth 2026.10.6, torch 2.14.1 |
+| `allinone` | generation + training + data stack in one venv (RL with vLLM rollouts, eval after training) | vllm 0.31.0, torch 2.13.0, transformers 5.17.0, flashinfer 0.7.0.post1, trl 1.15.0, peft 0.21.2, accelerate 1.15.0, deepspeed 0.19.7, liger-kernel 0.8.4, kernels 0.17.2, bitsandbytes 0.50.2, unsloth 2026.10.6, lm-eval 0.4.13, datasets 4.8.5 (resolved 2026-10-18); optional flash-attn 2.8.3.post2. vLLM's torch pin and Unsloth's caps (transformers <=5.17.0, trl <=1.15.0, datasets <5) hold everything back; no scispacy (numpy <2) |
 | `llamacpp` | GGUF inference, quantization, conversion | llama.cpp v0.7.0 (620d222), CUDA build |
 | `strata` | Qwen3.8-Flash-Next MoE engine | Strata v0.1.45 |
 
@@ -70,9 +71,25 @@ envs/tools/submit_slurm.sh -- all
 envs/tools/submit_slurm.sh --dry-run -- all
 # One profile, re-resolved from scratch
 envs/tools/submit_slurm.sh -- --relock profile:serve-vllm
-# train-hf with the source-built flash-attn wheel (long)
-envs/tools/submit_slurm.sh --time 08:00:00 -- --with-flash-attn profile:train-hf
+# Source-built flash-attn for train-hf and allinone (long, CPU only),
+# then a short GPU job that re-runs their smoke checks after it succeeds
+envs/tools/submit_slurm.sh --time 08:00:00 --gpus 0 --cpus 32 --mem 80000 \
+    -- --with-flash-attn profile:train-hf profile:allinone
+envs/tools/submit_slurm.sh --time 01:00:00 --gpus 1 --cpus 8 --mem 24000 \
+    --dependency afterok:<compile job id> -- smoke:train-hf smoke:allinone
 ```
+
+Options of `submit_slurm.sh` besides `--arch/--family/--time/--cpus/--mem`:
+
+- `--gpus N` (default 1): GPUs requested with `--gres=gpu:N`. `--gpus 0`
+  requests `--gres=gpu:0` and exports `NLPENV_NO_GPU=1`, so the job skips GPU
+  detection, hides CUDA from its containers and runs the CPU part of the smoke
+  checks only. Use it for long compile jobs so they do not hold the GPU that
+  benchmark jobs need (david01 has one GPU, 48 CPUs and ~120 GB; a
+  `--cpus 32 --mem 80000` compile leaves 16 CPUs and ~28 GB for others).
+- `--dependency SPEC`: passed to `sbatch --dependency` (e.g. `afterok:12345`).
+  build.sh also holds a per-arch lock, so an undepended smoke job simply
+  waits for a running build.
 
 How `submit_slurm.sh` decides where to run:
 
@@ -84,7 +101,8 @@ How `submit_slurm.sh` decides where to run:
    A mismatch, or a family with no responding node, stops the submission.
 3. The smallest `small/medium/large/x-large` partition whose MaxTime fits
    `--time` is used, with the whole node's CPUs and 90% of its memory and
-   one GPU (for smoke checks). Override with `--family`, `--cpus`, `--mem`.
+   one GPU (for smoke checks). Override with `--family`, `--cpus`, `--mem`,
+   `--gpus`.
 
 For aarch64 on Grace, clone this repository on filesrv01/02 and run
 `submit_slurm.sh` there. Do not copy x86_64 venvs to ARM nodes.
@@ -120,7 +138,25 @@ envs/tools/submit_miyabi.sh --group gg17 --queue short-g --submit -- base profil
   `pyproject.toml` is unchanged; a change or `--relock` re-resolves.
   It then runs `smoke_check.py`, which imports
   the stack and runs bf16 matmul and SDPA on the GPU, checked against a CPU
-  reference.
+  reference. When flash-attn is installed it also compares
+  `flash_attn_func` (causal, bf16) with an fp32 SDPA reference and checks its
+  backward pass. For `train-hf` and `allinone` it runs one LoRA
+  forward/backward/AdamW step on a tiny randomly initialized Llama model
+  (2 layers, hidden 128; nothing is downloaded), with `sdpa` and, if
+  installed, `flash_attention_2`. Without a GPU (e.g. `--gpus 0`) only the
+  imports run, and GPU-only imports such as `unsloth` are recorded as skipped.
+- `smoke:<name>`: re-runs only the smoke check of an existing venv, e.g. in a
+  short GPU job after a CPU-only compile job. It needs no network.
+- `--with-flash-attn`: adds the `flash` dependency group
+  (`flash-attn==2.8.3.post2`) for `train-hf` and `allinone`, built from source
+  (`FLASH_ATTENTION_FORCE_BUILD=TRUE`). flash-attn 2.8's `setup.py` ignores
+  `TORCH_CUDA_ARCH_LIST` and reads `FLASH_ATTN_CUDA_ARCHS` (families 80, 90,
+  100, 120), which build.sh derives from the arch list below (x86_64:
+  `80;90;120`, aarch64: `90;120`; sm_86/sm_89 run the sm_80 kernels).
+  `MAX_JOBS` is bounded by the job's memory (smaller of `MemAvailable` and
+  `SLURM_MEM_PER_NODE`, ~9 GiB per nvcc process) and `NVCC_THREADS` fills
+  the CPUs. A later `uv sync` of that profile without `--with-flash-attn`
+  removes flash-attn again (uv sync is exact).
 - `llamacpp`: compiles llama.cpp for the CUDA archs below and verifies that
   `llama-server --list-devices` sees CUDA.
 - `strata`: clones the pinned tag and runs `./setup.sh --check`. It downloads
@@ -156,6 +192,7 @@ envs/bin/nlpenv run serve-vllm -- vllm serve Qwen/Qwen3-8B --port 8000
 envs/bin/nlpenv run serve-sglang -- python -m sglang.launch_server --model-path Qwen/Qwen3-8B
 envs/bin/nlpenv run train-hf -- accelerate launch train.py
 envs/bin/nlpenv run train-unsloth -- python finetune.py
+envs/bin/nlpenv run allinone -- python grpo_with_vllm_rollouts.py
 envs/bin/nlpenv run llamacpp -- llama-server -m model.gguf -ngl 999 --port 8080
 envs/bin/nlpenv run llamacpp -- convert_hf_to_gguf.py /path/to/hf_model --outfile model.gguf
 envs/bin/nlpenv run base --bind /workspace/david01/ohto/data -- python analysis.py
@@ -171,7 +208,7 @@ envs/bin/nlpenv shell train-hf
   Switching an existing experiment to another environment changes its
   runtime, so treat it as a plan change for that experiment.
 
-Training speed-ups available in `train-hf`:
+Training speed-ups available in `train-hf` and `allinone`:
 
 - `attn_implementation="kernels-community/flash-attn2"` or `"sdpa"`: prebuilt
   attention kernels from the Kernels Hub, no compilation needed.

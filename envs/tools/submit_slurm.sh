@@ -19,11 +19,17 @@
 #   --family NAME              force a node family (e.g. david01, grace-o, preproc-o)
 #   --time HH:MM:SS            walltime (default 04:00:00)
 #   --cpus N / --mem MB        override the whole-node defaults
+#   --gpus N                   GPUs to request (default 1, for GPU smoke checks).
+#                              0 requests --gres=gpu:0 and sets NLPENV_NO_GPU=1 so a
+#                              CPU-only compile job leaves the GPU to other jobs
+#   --dependency SPEC          passed to sbatch --dependency (e.g. afterok:12345)
 #   --dry-run                  print the job script and sbatch command only
 # Examples:
 #   submit_slurm.sh -- all
 #   submit_slurm.sh --arch aarch64 -- base profile:serve-vllm
-#   submit_slurm.sh --time 08:00:00 -- --with-flash-attn profile:train-hf
+#   # CPU-only flash-attn compile, then a short GPU smoke job after it
+#   submit_slurm.sh --time 08:00:00 --gpus 0 --cpus 32 --mem 80000 -- --with-flash-attn profile:train-hf
+#   submit_slurm.sh --time 01:00:00 --gpus 1 --cpus 8 --mem 24000 --dependency afterok:12345 -- smoke:train-hf
 set -euo pipefail
 
 # shellcheck source=common.sh
@@ -34,6 +40,8 @@ FAMILY=""
 TIME="04:00:00"
 CPUS=""
 MEM=""
+GPUS=1
+DEPENDENCY=""
 DRY_RUN=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -42,13 +50,19 @@ while [[ $# -gt 0 ]]; do
         --time) TIME="$2"; shift ;;
         --cpus) CPUS="$2"; shift ;;
         --mem) MEM="$2"; shift ;;
+        --gpus) GPUS="$2"; shift ;;
+        --dependency) DEPENDENCY="$2"; shift ;;
         --dry-run) DRY_RUN=1 ;;
-        -h | --help) sed -n '2,29p' "$0"; exit 0 ;;
+        -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
         --) shift; break ;;
         *) nlpenv_die "unknown option $1 (build targets go after --)" ;;
     esac
     shift
 done
+[[ "${GPUS}" =~ ^[0-9]+$ ]] || nlpenv_die "--gpus must be a non-negative integer, got '${GPUS}'"
+if [[ -n "${DEPENDENCY}" && ! "${DEPENDENCY}" =~ ^[a-z]+(:[0-9_]+)+([,?][a-z]+(:[0-9_]+)+)*$ ]]; then
+    nlpenv_die "--dependency must look like afterok:<jobid>[:<jobid>...], got '${DEPENDENCY}'"
+fi
 BUILD_ARGS=("$@")
 [[ ${#BUILD_ARGS[@]} -gt 0 ]] || nlpenv_die "no build targets (e.g. submit_slurm.sh -- all)"
 command -v sbatch >/dev/null 2>&1 || nlpenv_die "sbatch not found; is this a Slurm login node?"
@@ -126,14 +140,16 @@ submit_one() {
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${cpus}
 #SBATCH --mem=${mem}M
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:${GPUS}
 #SBATCH --chdir=${NLPENV_REPO_ROOT}
 #SBATCH --output=${log_dir}/slurm-%j.out
+${DEPENDENCY:+#SBATCH --dependency=${DEPENDENCY}}
 set -euo pipefail
 export NLPENV_EXPECT_ARCH=${arch}
+export NLPENV_NO_GPU=$([[ ${GPUS} -eq 0 ]] && echo 1 || echo 0)
 bash "${NLPENV_TOOLS_DIR}/build.sh" $(printf '%q ' "${BUILD_ARGS[@]}")
 EOF
-    echo "--- ${arch} on ${part}: cpus=${cpus} mem=${mem}M time=${TIME} gpu=1"
+    echo "--- ${arch} on ${part}: cpus=${cpus} mem=${mem}M time=${TIME} gpus=${GPUS}${DEPENDENCY:+ dependency=${DEPENDENCY}}"
     echo "    targets: ${BUILD_ARGS[*]}"
     echo "    script : ${script}"
     if [[ ${DRY_RUN} -eq 1 ]]; then
