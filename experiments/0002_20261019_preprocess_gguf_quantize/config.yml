@@ -1,12 +1,43 @@
 # ============================================================
-# Experiment Configuration
+# Experiment Configuration (0002 preprocess_gguf_quantize)
 # ============================================================
-# - Fixed hyperparameters go here.
-# - Variable dimensions (model, seed, prompt, ...) go in run_slurm.sh GRID_ARGS.
-# - Do NOT hardcode values you intend to sweep.
+# - Fixed values only. Swept dimensions (--model, --type) are in run_slurm.sh GRID_ARGS.
+# - All values below come from the approved plan.md (experiment-conditions JSON).
 # ============================================================
 
-# --- Hyperparameters ---
-seed: 42
-# max_tokens: 512
-# temperature: 0.0
+# Upstream: 0001 BF16 GGUFs (data.input_paths). Path is relative to PROJECT_ROOT.
+upstream:
+  bf16_exp: 0001_20261019_preprocess_gguf_bf16
+  bf16_dir: outputs/0001_20261019_preprocess_gguf_bf16
+  bf16_filename: model-BF16.gguf
+  bf16_meta_filename: gguf_meta.json
+
+# Allowed --model values (variants.tasks[].settings.model).
+models:
+  - qwen3-8b
+  - qwen3-30b-a3b
+
+# Allowed --type values -> expected gguf.LlamaFileType (llama.cpp v0.7.0 constants.py)
+# and the tensor type that must be present in the output.
+quant_types:
+  Q8_0:
+    file_type: 7        # MOSTLY_Q8_0
+    tensor_type: Q8_0
+  Q4_K_M:
+    file_type: 15       # MOSTLY_Q4_K_M
+    tensor_type: Q4_K
+
+# llama-quantize settings (hyperparameters.quantization): no imatrix, 16 threads.
+quantize_threads: 16
+output_filename_template: "model-{type}.gguf"
+
+# Runtime inside llamacpp.sif (environment.runtime / dependencies.quantizer).
+quantize_bin: /opt/llama.cpp/bin/llama-quantize
+gguf_python: /opt/llama.cpp/venv/bin/python
+gguf_py_path: /opt/llama.cpp/src/gguf-py
+sif_labels_file: /.singularity.d/labels.json
+expected_llamacpp_ref: v0.7.0
+expected_llamacpp_commit: 620d2225cc436ab0b001e3200e590e3b286ef9ab
+
+# Read size for streaming SHA-256 (bytes).
+sha256_chunk_bytes: 16777216

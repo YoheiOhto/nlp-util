@@ -96,3 +96,9 @@ GPU は使わない。数値の再計算だけを行う。
 
 ### 2026-10-19 承認
 - ユーザーがチャットで承認: 「Issue #4 の plan 0001〜0005 の実装と実行を承認」。記録は `execution-approval.json`（期限 2026-10-25 23:59 JST）。
+
+### 2026-10-19 実装（投入前）
+- テンプレート層を runx 互換版（KG-with-pubmed e9a501e の scripts/templates/tools/Makefile）に差し替えた。理由: 先に入れた template 7aae6e9 の slurm_entry.sh は run_slurm.sh から source される前提で、承認チェック付きの runx と組み合わせられない。出力は scratch を経由せず outputs/ に直接書く。
+- SIF は run_slurm.sh で `SIF_PATH=${PROJECT_ROOT}/env/env.sif`（-> llamacpp.sif）を明示する（ログイン環境の SIF_PATH を引き継がないため）。
+- 資源は runx の DEFAULT_* で指定。partition と USR1 の余裕は runx が自動で決める。
+- 実装はサブエージェントが行い、親が plan と照合した。plan の承認部分は未変更（gate の digest 一致を確認）。

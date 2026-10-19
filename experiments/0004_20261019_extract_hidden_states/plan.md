@@ -130,3 +130,10 @@ llama.cpp と vLLM で内部表現（hidden states）がどこまで取れるか
 
 ### 2026-10-19 承認
 - ユーザーがチャットで承認: 「Issue #4 の plan 0001〜0005 の実装と実行を承認」。記録は `execution-approval.json`（期限 2026-10-25 23:59 JST）。
+
+### 2026-10-19 実装（投入前）
+- テンプレート層を runx 互換版（KG-with-pubmed e9a501e の scripts/templates/tools/Makefile）に差し替えた。理由: 先に入れた template 7aae6e9 の slurm_entry.sh は run_slurm.sh から source される前提で、承認チェック付きの runx と組み合わせられない。出力は scratch を経由せず outputs/ に直接書く。
+- SIF は run_slurm.sh で `SIF_PATH=${PROJECT_ROOT}/env/env.sif`（-> llamacpp.sif）を明示する（ログイン環境の SIF_PATH を引き継がないため）。
+- 資源は runx の DEFAULT_* で指定。partition と USR1 の余裕は runx が自動で決める。
+- 実装はサブエージェントが行い、親が plan と照合した。plan の承認部分は未変更（gate の digest 一致を確認）。
+- 0004: vllm-bf16-hidden タスクで最後のトークンの logits も語彙全体で保存する（`logprobs_mode=raw_logits`）。hidden states の値には影響しない追加の取得。`gpu_memory_utilization=0.80` は運用上の値。エンジン側の失敗は plan どおり unavailable として記録する。

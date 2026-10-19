@@ -1,12 +1,137 @@
 # ============================================================
-# Experiment Configuration
+# Experiment Configuration: 0003 eval_engine_speed
 # ============================================================
-# - Fixed hyperparameters go here.
-# - Variable dimensions (model, seed, prompt, ...) go in run_slurm.sh GRID_ARGS.
-# - Do NOT hardcode values you intend to sweep.
+# - Fixed settings only. The swept dimensions (--model, --engine_format,
+#   --repeat) are passed by run_slurm.sh GRID_ARGS.
+# - Every value below is taken from plan.md (experiment-conditions JSON).
+#   Changing any engine flag, workload or generation setting needs a new
+#   approved plan version (debug_policy.equivalence_requirements).
 # ============================================================
 
-# --- Hyperparameters ---
-seed: 42
-# max_tokens: 512
-# temperature: 0.0
+# Seed of the synthetic random prompts (vllm bench serve --seed).
+seed: 0
+
+# Allowed values of the swept dimensions (validated by argparse choices).
+repeats: [1, 2, 3]
+
+models:
+  qwen3-8b:
+    hf_id: Qwen/Qwen3-8B
+    snapshot: /workspace/david01/ohto/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218
+    gguf:
+      BF16: outputs/0001_20261019_preprocess_gguf_bf16/qwen3-8b/model-BF16.gguf
+      Q8_0: outputs/0002_20261019_preprocess_gguf_quantize/qwen3-8b__q8_0/model-Q8_0.gguf
+      Q4_K_M: outputs/0002_20261019_preprocess_gguf_quantize/qwen3-8b__q4_k_m/model-Q4_K_M.gguf
+  qwen3-30b-a3b:
+    hf_id: Qwen/Qwen3-30B-A3B-Instruct-2507
+    snapshot: /workspace/david01/ohto/.cache/huggingface/hub/models--Qwen--Qwen3-30B-A3B-Instruct-2507/snapshots/0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe
+    gguf:
+      BF16: outputs/0001_20261019_preprocess_gguf_bf16/qwen3-30b-a3b/model-BF16.gguf
+      Q8_0: outputs/0002_20261019_preprocess_gguf_quantize/qwen3-30b-a3b__q8_0/model-Q8_0.gguf
+      Q4_K_M: outputs/0002_20261019_preprocess_gguf_quantize/qwen3-30b-a3b__q4_k_m/model-Q4_K_M.gguf
+
+# GGUF integrity: <gguf dir>/gguf_meta.json must hold {"sha256": "<hex>"}.
+gguf_meta_filename: gguf_meta.json
+gguf_meta_sha256_key: sha256
+
+# engine_format (task id part) -> engine and format (plan variants.settings).
+engine_formats:
+  vllm-bf16: {engine: vllm, format: bf16}
+  vllm-fp8: {engine: vllm, format: fp8}
+  llamacpp-bf16: {engine: llamacpp, format: BF16}
+  llamacpp-q8_0: {engine: llamacpp, format: Q8_0}
+  llamacpp-q4_k_m: {engine: llamacpp, format: Q4_K_M}
+
+vllm:
+  # Resolved on PATH inside the activated .venv (allinone, vllm 0.31.0).
+  executable: vllm
+  # plan hyperparameters.selection_rationale; --dtype bfloat16 states the
+  # plan's precision (bf16) explicitly and equals the snapshots' torch_dtype.
+  server_args:
+    - --dtype
+    - bfloat16
+    - --max-model-len
+    - "4096"
+    - --max-num-seqs
+    - "64"
+    - --gpu-memory-utilization
+    - "0.90"
+    - --no-enable-prefix-caching
+  format_args:
+    bf16: []
+    fp8: [--quantization, fp8]
+
+llamacpp:
+  server_bin: /opt/llama.cpp/bin/llama-server
+  bench_bin: /opt/llama.cpp/bin/llama-bench
+  # plan hyperparameters.selection_rationale (exact).
+  server_args:
+    - -ngl
+    - "999"
+    - -fa
+    - "on"
+    - -c
+    - "65536"
+    - -np
+    - "64"
+    - -kvu
+    - --cache-ram
+    - "0"
+    - --no-cache-prompt
+    - --threads
+    - "16"
+  # plan hyperparameters.additional_settings.llamacpp_reference (exact).
+  bench_args:
+    - -ngl
+    - "999"
+    - -fa
+    - "1"
+    - -p
+    - 512,2048
+    - -n
+    - "256"
+    - -r
+    - "3"
+    - -o
+    - json
+
+# Client: vllm bench serve against the running server (plan prompt section).
+client:
+  backend: openai
+  endpoint: /v1/completions
+  dataset_name: random
+  temperature: 0
+  top_p: 1.0
+  ignore_eos: true
+  # 4 warm-up requests before each workload (plan data.inclusion_exclusion);
+  # implemented with vllm bench serve --num-warmups, which sends them in the
+  # same client process before the measured run and excludes them.
+  num_warmups: 4
+  # Per-request output lengths are needed for the 256-token length check.
+  save_detailed: true
+  timeout_s: 3600
+
+# Generation output length (plan prompt.generation_settings.max_tokens).
+output_len: 256
+
+# plan hyperparameters.additional_settings.workloads (exact, in order).
+workloads:
+  - {id: w1_single_in512, input_len: 512, output_len: 256, max_concurrency: 1, num_prompts: 16}
+  - {id: w2_single_in2048, input_len: 2048, output_len: 256, max_concurrency: 1, num_prompts: 16}
+  - {id: w3_c8, input_len: 512, output_len: 256, max_concurrency: 8, num_prompts: 64}
+  - {id: w4_c32, input_len: 512, output_len: 256, max_concurrency: 32, num_prompts: 256}
+  - {id: w5_c64, input_len: 512, output_len: 256, max_concurrency: 64, num_prompts: 512}
+
+# Operational settings (not scientific conditions).
+server:
+  host: 127.0.0.1
+  port: 18080
+  health_timeout_s: 1800
+  health_poll_interval_s: 0.5
+  stop_timeout_s: 60
+gpu:
+  sample_interval_ms: 500
+  # GPU must be (and become again after stop) below this memory use.
+  free_threshold_mib: 1024
+  free_timeout_s: 180
+llama_bench_timeout_s: 3600
