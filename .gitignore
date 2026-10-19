@@ -152,3 +152,4 @@ experiments/latest
 .agent-runs/
 .agentrun.lock
 unsloth_compiled_cache/
+.research/code-check/
