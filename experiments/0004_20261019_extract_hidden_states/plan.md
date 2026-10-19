@@ -127,3 +127,6 @@ llama.cpp と vLLM で内部表現（hidden states）がどこまで取れるか
 ```
 
 ## 実行状況
+
+### 2026-10-19 承認
+- ユーザーがチャットで承認: 「Issue #4 の plan 0001〜0005 の実装と実行を承認」。記録は `execution-approval.json`（期限 2026-10-25 23:59 JST）。
