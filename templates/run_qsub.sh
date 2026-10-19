@@ -1,16 +1,51 @@
-#!/usr/bin/env bash
-#PBS -N __EXP_NAME__
-#PBS -o __PROJECT_ROOT__/logs/__EXP_NAME__/pbs.out
-#PBS -e __PROJECT_ROOT__/logs/__EXP_NAME__/pbs.err
-#PBS -l walltime=24:00:00
-#PBS -l select=1:ncpus=20:mem=110gb:ngpus=1
-#PBS -V
-set -euo pipefail
-export PROJECT_ROOT="__PROJECT_ROOT__"
-export EXP_NAME="__EXP_NAME__"
+#!/bin/bash
+ 
+# =====================================================
+# Resources (qsub/PBS)
+# ⚠️ 注意: DEFAULT_TIME/DEFAULT_MEM は既存実験の値をコピーして使う。自分で概算しない。
+# ⚠️ 注意: シェル上での for/while ループによる実行は禁止です。
+# =====================================================
+ 
+HEADER_TYPE="miyabi_gpu"
+DEFAULT_GPU=1
+DEFAULT_CPU=20
+DEFAULT_MEM="110g"
+DEFAULT_TIME="04:00:00"
+ 
+# =====================================================
+# Storage
+# =====================================================
+ 
 USE_LOCAL_SSD_INPUT=0
-USE_LOCAL_SSD_OUTPUT=0
-RUN_MODE="single"
+ 
+ 
+# =====================================================
+# python path
+# =====================================================
 PYTHON_PATH="${PROJECT_ROOT}/experiments/${EXP_NAME}/experiment.py"
-RUN_COMMAND="python3 ${PYTHON_PATH} --config config.yml"
-source "${PROJECT_ROOT}/scripts/slurm_entry.sh"
+ 
+ 
+# =====================================================
+# Single run (runx)
+# =====================================================
+ 
+# RUN_COMMAND="
+# python ${PYTHON_PATH} \
+#     --config config.yml
+# "
+ 
+# =====================================================
+# Multi run (runx --array or runx --seq)
+# =====================================================
+ 
+# BASE_COMMAND="python ${PYTHON_PATH}"
+ 
+# GRID_ARGS=(
+#     "--model"
+#     "--dataset"
+# )
+ 
+# GRID_VALUES=(
+#     "google/gemma-4-31b-it meta-llama/Llama-3-8b-it Qwen/Qwen3.6-27B mistralai/Ministral-3-14B-Instruct-2512 google/medgemma-27b-text-it BioMistral/BioMistral-7B openai/gpt-oss-20b"
+#     "BC5CDR BIORED"
+# )

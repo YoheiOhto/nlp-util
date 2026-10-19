@@ -57,7 +57,7 @@ _latest_exp() {
         -maxdepth 1 \
         -type d \
         ! -name latest \
-        -exec basename {} \; 2>/dev/null \
+        -printf "%f\n" 2>/dev/null \
     | grep -E '^[0-9]{4}_' \
     | sort -t '_' -k1,1n \
     | tail -n1
@@ -103,7 +103,7 @@ LAST_ID=$(
         -maxdepth 1 \
         -type d \
         ! -name latest \
-        -exec basename {} \; 2>/dev/null \
+        -printf "%f\n" 2>/dev/null \
     | grep -E '^[0-9]{4}_' \
     | cut -d_ -f1 \
     | sort -n \
@@ -174,25 +174,13 @@ rsync -a \
 RUN_SCRIPT="${NEW_EXP_DIR}/run_slurm.sh"
 
 if [ -f "${RUN_SCRIPT}" ]; then
-    sed -i.bak "s|${SRC_EXP}|${NEW_EXP_NAME}|g" "${RUN_SCRIPT}"
-    rm -f "${RUN_SCRIPT}.bak"
-
-    # 元の実験で #SBATCH --dependency= が有効化されていた場合、古いjob_idへの
-    # 依存を resume 先へ無自覚に引き継がないよう、再度コメントアウトし直す
-    # （必要ならユーザーが新しいjob_idで手動で有効化し直す）。
-    if grep -qE '^#SBATCH[[:space:]]+--dependency=' "${RUN_SCRIPT}"; then
-        sed -i.bak -E 's/^#SBATCH([[:space:]]+--dependency=.*)$/# #SBATCH\1/' "${RUN_SCRIPT}"
-        rm -f "${RUN_SCRIPT}.bak"
-        echo "⚠️  元の実験の #SBATCH --dependency= を無効化しました（古いjob_idを引き継がないため）。"
-        echo "    必要なら新しいjob_idで手動で有効化し直してください。"
-    fi
+    sed -i "s|${SRC_EXP}|${NEW_EXP_NAME}|g" "${RUN_SCRIPT}"
 fi
 
 CONFIG_PATH="${NEW_EXP_DIR}/config.yml"
 
 if [ -f "${CONFIG_PATH}" ]; then
-    sed -i.bak "s|${SRC_EXP}|${NEW_EXP_NAME}|g" "${CONFIG_PATH}"
-    rm -f "${CONFIG_PATH}.bak"
+    sed -i "s|${SRC_EXP}|${NEW_EXP_NAME}|g" "${CONFIG_PATH}"
 fi
 
 # =========================================================
@@ -216,8 +204,8 @@ EOF
 # Update latest symlink
 # =========================================================
 
-ln -sfn "${NEW_EXP_NAME}" "${EXP_ROOT}/latest"
-ln -sfn "${NEW_EXP_NAME}" "${OUT_ROOT}/latest"
+ln -sfn "${NEW_EXP_DIR}" "${EXP_ROOT}/latest"
+ln -sfn "${NEW_OUT_DIR}" "${OUT_ROOT}/latest"
 
 # =========================================================
 # Done

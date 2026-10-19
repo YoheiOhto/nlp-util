@@ -1,6 +1,5 @@
 .PHONY: \
 	setup \
-	build_env \
 	uv_sync \
 	create_exp \
 	mark_fail \
@@ -9,14 +8,7 @@
 	log_clean \
 	failed_log_clean \
 	clean_failed \
-	check \
 	preflight \
-	estimate \
-	render \
-	report_daily \
-	report_weekly \
-	remote_plan \
-	status \
 	jupyter \
 	review
 
@@ -28,37 +20,17 @@ setup:
 	@bash tools/first_setup.sh
 
 # =========================================================
-# 0b. Build the Apptainer image (env/env.def → env/env.sif)
-#     partition はここで渡す。tools/build_env.sh 側には焼き込まない。
-# =========================================================
-
-build_env:
-	@if [ -z "$(p)" ]; then \
-		echo "❌ Error: partition is required."; \
-		echo "Usage: make build_env p=<partition>"; \
-		exit 1; \
-	fi
-
-	@mkdir -p logs
-	sbatch --partition=$(p) tools/build_env.sh
-
-# =========================================================
 # 1. Sync Python environment
 # =========================================================
 
 uv_sync:
 	@if [ -z "$(p)" ]; then \
 		echo "❌ Error: partition is required."; \
-		echo "Usage:"; \
-		echo "  make uv_sync p=<partition>                  # base のみ"; \
-		echo "  make uv_sync p=<partition> extras=\"llm chem\""; \
-		echo "  make uv_sync p=<partition> extras=all        # 全extra"; \
-		echo "Available extras: llm, chem, nlp"; \
+		echo "Usage: make uv_sync p=<partition>"; \
 		exit 1; \
 	fi
 
-	@mkdir -p logs
-	sbatch --partition=$(p) tools/uv_sync.sh $(extras)
+	sbatch --partition=$(p) tools/uv_sync.sh
 
 # =========================================================
 # 2. Create Experiment
@@ -154,15 +126,36 @@ log_clean:
 
 # =========================================================
 # 6b. Clean up failed experiment logs and job directories
-#     - FAILED/TIMEOUT/OOM/NODE_FAIL/CANCELLED のジョブログを削除
-#     - status が RUNNING のまま残ったゾンビログを削除
-#       （スケジューラにジョブが存在しないことを確認できた場合のみ。
-#         稼働中ジョブのログを消さないため）
-#     - 対応する experiments/ が無い孤立ログを削除
+#     Deletes log folders for failed, OOM, timeout, or node fail runs,
+#     and logs for experiments that have been renamed to *_FAILED_*
 # =========================================================
 
 failed_log_clean:
-	@bash tools/clean_failed_logs.sh
+	@root=$$(git rev-parse --show-toplevel); \
+	echo "🔍 Scanning for failed/timeout/OOM job logs..."; \
+	find "$$root/logs" -name "run_metadata.yaml" | while read meta; do \
+		status=$$(grep -E '^status:' "$$meta" | awk '{print $$2}' | tr -d '"' | tr -d "'"); \
+		if [ "$$status" = "FAILED" ] || [ "$$status" = "TIMEOUT" ] || [ "$$status" = "OUT_OF_MEMORY" ] || [ "$$status" = "NODE_FAIL" ] || [ "$$status" = "CANCELLED" ]; then \
+			job_dir=$$(dirname "$$meta"); \
+			echo "  ❌ Deleting failed job log directory: $$(basename "$$job_dir") (Status: $$status)"; \
+			rm -rf "$$job_dir"; \
+		elif [ "$$status" = "RUNNING" ]; then \
+			if [ -n "$$(find "$$meta" -mmin +1440 2>/dev/null)" ]; then \
+				job_dir=$$(dirname "$$meta"); \
+				echo "  ❌ Deleting hung RUNNING job log directory (inactive >24h): $$(basename "$$job_dir")"; \
+				rm -rf "$$job_dir"; \
+			fi; \
+		fi; \
+	done; \
+	echo "🔍 Scanning for orphaned/failed experiment logs..."; \
+	find "$$root/logs" -mindepth 1 -maxdepth 1 -type d | while read log_dir; do \
+		exp_name=$$(basename "$$log_dir"); \
+		if [ ! -d "$$root/experiments/$$exp_name" ] && [ "$$exp_name" != "latest" ]; then \
+			echo "  ❌ Deleting failed/deleted experiment log directory: $$exp_name"; \
+			rm -rf "$$log_dir"; \
+		fi; \
+	done; \
+	echo "✅ Clean up completed."
 
 clean_failed: failed_log_clean
 
@@ -190,27 +183,11 @@ jupyter:
 # 8. Preflight validation checks before runx
 # =========================================================
 
-check:
-	@bash tools/code_check.sh
-
 preflight:
-	@python3 -m scripts.preflight_check
+	@python3 -m tools.preflight_check
 
-estimate:
-	@python3 tools/resource_estimate.py --root . $(if $(exp),--exp $(exp),)
+collect:
+	bash tools/collect_from_remote.sh $(filter-out $@,$(MAKECMDGOALS))
 
-render:
-	@if [ -z "$(exp)" ]; then echo "Usage: make render exp=<id-or-directory>"; exit 1; fi
-	@python3 tools/render_resources.py $(exp)
-
-report_daily:
-	@python3 tools/report.py daily --root .
-
-report_weekly:
-	@python3 tools/report.py weekly --root .
-
-remote_plan:
-	@bash tools/remote_run.sh plan $(if $(exp),--exp=$(exp),)
-
-status:
-	@python3 tools/research_status.py --root .
+push:
+	bash tools/push_to_remote.sh $(filter-out $@,$(MAKECMDGOALS))

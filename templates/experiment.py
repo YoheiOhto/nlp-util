@@ -7,10 +7,10 @@ from pathlib import Path
 
 import yaml
 
-# Scientific/deep-learning imports are intentionally opt-in. Import only what
-# this experiment actually uses so a control-plane smoke run stays lightweight.
-# import numpy as np
-# import pandas as pd
+# --- Basic scientific imports ---
+import numpy as np
+import pandas as pd
+
 # --- Deep learning (uncomment if needed) ---
 # import torch
 # import torch.nn as nn
@@ -75,7 +75,6 @@ def main() -> None:
 
     exp_name = os.environ["EXP_NAME"]
     dataset_dir = Path(os.environ.get("DATASET_DIR", str(project_root / "data")))
-    output_root = os.environ.get("OUTPUT_ROOT")
 
     args = parse_args()
 
@@ -87,9 +86,7 @@ def main() -> None:
     variant_key = "default"
 
     # Initialize output directory (exits immediately if already completed).
-    # Written on OUTPUT_ROOT (scratch) when set; scripts/slurm_entry.sh
-    # rsyncs it back to project_root/outputs/ at job end.
-    run_dir = get_run_dir(project_root, __file__, variant_key, output_root=output_root)
+    run_dir = get_run_dir(project_root, __file__, variant_key)
     logger = setup_logger(run_dir, exp_name)
 
     config = load_config(Path(__file__).parent)

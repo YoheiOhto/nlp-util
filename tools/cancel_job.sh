@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -euo pipefail
-
 JOB_ID=${1:-}
 REASON=${2:-"user_cancel"}
 
@@ -18,9 +16,6 @@ fi
 
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
 
-# run_metadata.yaml の読み書き（scripts/slurm_entry.sh と同じ実装を共有する）
-source "${PROJECT_ROOT}/scripts/metadata.sh"
-
 # =====================================================
 # --all: cancel every job currently queued/running for $USER
 # Resolves each distinct base job ID from squeue (array task suffixes like
@@ -35,7 +30,7 @@ if [ "${JOB_ID}" = "--all" ]; then
         exit 1
     fi
 
-    JOB_IDS=$(squeue -u "${USER}" -h -o "%A" | sed -E 's/_.*//' | sort -u || true)
+    JOB_IDS=$(squeue -u "${USER}" -h -o "%A" | sed -E 's/_.*//' | sort -u)
 
     if [ -z "${JOB_IDS}" ]; then
         echo "No running/pending jobs found for user ${USER}."
@@ -47,9 +42,7 @@ if [ "${JOB_ID}" = "--all" ]; then
     for JID in ${JOB_IDS}; do
         echo ""
         echo "=== Cancelling job ${JID} ==="
-        # 1件失敗しても残りのキャンセルは続ける
-        bash "${PROJECT_ROOT}/tools/cancel_job.sh" "${JID}" "${REASON}" \
-            || echo "⚠️  job ${JID} のキャンセルに失敗しました（続行します）" >&2
+        bash "${PROJECT_ROOT}/tools/cancel_job.sh" "${JID}" "${REASON}"
     done
 
     exit 0
@@ -57,21 +50,14 @@ fi
 
 # =====================================================
 # Resolve metadata
-# Array job の場合 logs 下に {array_job_id}_{array_task_id}/ というディレクトリが
-# できるため、「完全一致」と「{job_id}_ で始まるもの」の2パターンを探す。
-#
-# ⚠️ 以前は -path "*/${JOB_ID}*/..." という前方一致だったため、
-#    `cancelx 1234` が 12345 や 123456 といった無関係な稼働中ジョブの
-#    メタデータまで CANCELLED に書き換えていた（scancel は 1234 しか止めない
-#    ので、走り続けているジョブのステータスだけが壊れる）。
+# Array job の場合 logs 下に {job_id}_{array_id}/ や
+# Slurm内部IDのディレクトリができるため前方一致で探す
 # =====================================================
 
 META_FILES=$(
     find "${PROJECT_ROOT}/logs" \
-        \( -path "*/${JOB_ID}/run_metadata.yaml" \
-           -o -path "*/${JOB_ID}_*/run_metadata.yaml" \) \
-        2>/dev/null \
-    || true
+        -path "*/${JOB_ID}*/run_metadata.yaml" \
+        2>/dev/null
 )
 
 if [ -z "${META_FILES}" ]; then
@@ -86,9 +72,17 @@ else
 
         echo "Updating: ${META_FILE}"
 
-        metadata_set "${META_FILE}" status        "CANCELLED"
-        metadata_set "${META_FILE}" cancel_reason "${REASON}"
-        metadata_set "${META_FILE}" cancelled_by  "${USER}"
+        python3 - <<EOF
+from pathlib import Path
+import yaml
+
+path = Path("${META_FILE}")
+data = yaml.safe_load(path.read_text())
+data["status"] = "CANCELLED"
+data["cancel_reason"] = "${REASON}"
+data["cancelled_by"] = "${USER}"
+path.write_text(yaml.safe_dump(data, sort_keys=False))
+EOF
 
     done <<< "${META_FILES}"
 fi
@@ -103,7 +97,10 @@ FIRST_META=$(echo "${META_FILES}" | head -n1)
 EXP_NAME=""
 
 if [ -n "${FIRST_META}" ]; then
-    EXP_NAME=$(metadata_get "${FIRST_META}" exp_name || true)
+    EXP_NAME=$(
+        grep '^exp_name:' "${FIRST_META}" \
+        | awk '{print $2}'
+    )
 fi
 
 # =====================================================

@@ -10,3 +10,8 @@
 seed: 42
 # max_tokens: 512
 # temperature: 0.0
+
+# --- Upstream experiment references ---
+# upstream:
+#   train_exp: 0001_20260101_train_baseline
+#   checkpoint: outputs/0001_20260101_train_baseline/checkpoint.pt

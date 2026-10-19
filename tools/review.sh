@@ -36,10 +36,6 @@ if [ -n "$EXP_NAME" ]; then
         exit 1
     fi
 
-    if [ -f "$OUT_FILE" ]; then
-        echo "Review already exists; preserving: ${OUT_FILE}"
-        exit 0
-    fi
     echo "Creating review for experiment: ${EXP_BASE}"
     sed -e "s/<実験名>/${EXP_BASE}/" \
         -e "s/NNNN_YYYYMMDD_<name>/${EXP_BASE}/" \

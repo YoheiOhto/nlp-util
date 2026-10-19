@@ -5,10 +5,11 @@
 set -euo pipefail
 
 EXP_NAME=${1:-}
+EXAMPLE_NAME=${2:-}
 
 if [ -z "$EXP_NAME" ]; then
     echo "❌ Error: <exp_name> is required."
-    echo "Usage: bash tools/create_exp.sh <exp_name>"
+    echo "Usage: bash tools/create_exp.sh <exp_name> [example_name]"
     exit 1
 fi
 
@@ -92,100 +93,53 @@ COMMIT_HASH=$(git rev-parse HEAD 2>/dev/null || echo "git_not_available")
 GIT_DIFF=$(git diff HEAD 2>/dev/null || true)
 
 # =========================================================
-# Resolve partition (owner + time-scale) and signal margin
-#
-# テンプレートの #SBATCH --time= を初期値として、実験作成時に一度だけ
-# partition と time-limit警告用のsignal marginを計算し埋め込む。
-# 後で run_slurm.sh の --time を大きく変更した場合、この2つは自動追従
-# しないため、必要なら手動で --partition/--signal も合わせて編集すること。
+# Resolve source templates (Default vs Example)
 # =========================================================
 
+EXAMPLES_DIR="${PROJECT_ROOT}/examples"
 TEMPLATE_DIR="${PROJECT_ROOT}/templates"
+SRC_DIR="${TEMPLATE_DIR}"
 
-_resolve_partition() {
-    local root="$1"
-    local time_limit="$2"
-    local owner=""
-
-    case "$root" in
-        /workspace/andre01/*) owner="andre01" ;;
-        /workspace/david01/*) owner="david01" ;;
-        /workspace/david02/*) owner="david02" ;;
-        /workspace/filesrv01/*) owner="creator" ;;
-        /workspace/filesrv02/*) owner="creator" ;;
-        /workspace/grace01/*) owner="grace01" ;;
-        /workspace/grace02/*) owner="grace02" ;;
-        *)
-            local host
-            host=$(hostname 2>/dev/null || echo "")
-            if [ "$host" = "micgm1" ]; then
-                owner="micgm1"
-            else
-                echo "❌ Could not infer partition owner from path: ${root}" >&2
-                return 1
-            fi
-            ;;
-    esac
-
-    local hh mm ss total_minutes scale
-    IFS=: read -r hh mm ss <<< "$time_limit"
-    total_minutes=$((10#$hh * 60 + 10#$mm))
-
-    if [ "$total_minutes" -le 60 ]; then
-        scale="small"
-    elif [ "$total_minutes" -le 120 ]; then
-        scale="medium"
-    elif [ "$total_minutes" -le 240 ]; then
-        scale="large"
+if [ -n "${EXAMPLE_NAME}" ]; then
+    if [ -d "${EXAMPLES_DIR}/${EXAMPLE_NAME}" ]; then
+        SRC_DIR="${EXAMPLES_DIR}/${EXAMPLE_NAME}"
+        echo "💡 Using specified example: ${EXAMPLE_NAME}"
     else
-        scale="x-large"
+        echo "❌ Error: Specified example '${EXAMPLE_NAME}' not found in examples/"
+        exit 1
     fi
-
-    echo "${scale}-${owner}"
-}
-
-_resolve_signal_margin() {
-    local time_limit="$1"
-    local hh mm ss total_seconds margin
-
-    IFS=: read -r hh mm ss <<< "$time_limit"
-    total_seconds=$((10#$hh * 3600 + 10#$mm * 60 + 10#$ss))
-    margin=$((total_seconds / 100))
-    [ "$margin" -lt 30 ] && margin=30
-
-    echo "$margin"
-}
-
-TEMPLATE_DEFAULT_TIME=$(
-    sed -n 's/^#SBATCH --time=//p' "${TEMPLATE_DIR}/run_slurm.sh" | head -n1
-)
-
-PARTITION=$(_resolve_partition "${PROJECT_ROOT}" "${TEMPLATE_DEFAULT_TIME}")
-SIGNAL_MARGIN=$(_resolve_signal_margin "${TEMPLATE_DEFAULT_TIME}")
+else
+    echo "💡 No example specified. Using default templates."
+fi
 
 # =========================================================
-# Templates
+# Copy and generate files
 # =========================================================
 
-# run_slurm.sh
+# run_slurm.sh (環境に応じたテンプレートからコピー)
+PROFILE="${AGENT_PROFILE:-slurm}"
+TEMPLATE_FILE="${TEMPLATE_DIR}/run_slurm.sh"
+if [ "$PROFILE" = "qsub" ]; then
+    TEMPLATE_FILE="${TEMPLATE_DIR}/run_qsub.sh"
+elif [ "$PROFILE" = "local" ]; then
+    TEMPLATE_FILE="${TEMPLATE_DIR}/run_local.sh"
+fi
+
 sed \
     -e "s|__EXP_NAME__|${DIR_NAME}|g" \
-    -e "s|__PROJECT_ROOT__|${PROJECT_ROOT}|g" \
-    -e "s|__PARTITION__|${PARTITION}|g" \
-    -e "s|__SIGNAL_MARGIN__|${SIGNAL_MARGIN}|g" \
-    "${TEMPLATE_DIR}/run_slurm.sh" \
+    "$TEMPLATE_FILE" \
     > "${EXP_PATH}/run_slurm.sh"
 
 chmod +x "${EXP_PATH}/run_slurm.sh"
 
 # experiment.py
 cp \
-    "${TEMPLATE_DIR}/experiment.py" \
+    "${SRC_DIR}/experiment.py" \
     "${EXP_PATH}/experiment.py"
 
 # config.yml
 cp \
-    "${TEMPLATE_DIR}/config.yml" \
+    "${SRC_DIR}/config.yml" \
     "${EXP_PATH}/config.yml"
 
 # =========================================================

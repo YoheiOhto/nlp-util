@@ -1,31 +1,20 @@
-# <実験名> — Experiment Review
+<!-- このファイルは対象実験ディレクトリ内に配置する: experiments/<id>_<date>_<name>/review.md -->
+# review: <実験名>
 
-## 1. 結論（スライド見出し）
+- **実験ID（必須）**: NNNN_YYYYMMDD_<name>
+  <!-- debug-experiment/review-exp はここを最優先で使う。latestには依存しない。 -->
 
-- 結論:
-- 仮説は支持されたか:
-- 次の意思決定:
+## 対象実験
+- 投入ジョブID（わかる場合）:
 
-## 2. 実験条件
+## 現象
+（何が起きているか。エラー文・ステータスを簡潔に）
 
-- Git commit:
-- Dataset / version:
-- Model / seed:
-- GPU / CPU / memory / elapsed:
+## 依頼内容
+- [ ] デバッグ・原因特定（`/debug-experiment` を使う）
+- [ ] 結果集計・仮説判定（`/review-exp` を使う）
+- [ ] その他:
 
-## 3. 主要結果
-
-| 条件 | Primary metric | 補助指標 | 備考 |
-|---|---:|---:|---|
-| | | | |
-
-## 4. 図表候補
-
-- 図:
-- スライドで伝えるメッセージ:
-
-## 5. 解釈・限界・次の実験
-
-- 解釈:
-- 限界・交絡:
-- 次の実験:
+## 参考情報（任意）
+- 最後に確認した slurm.out の抜粋:
+- 試したこと:

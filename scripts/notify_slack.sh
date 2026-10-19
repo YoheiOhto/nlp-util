@@ -1,30 +1,11 @@
 #!/bin/bash
 
-# Notifications are best-effort: they must never change the job result.
-_notify_warning() {
-    printf 'WARNING: Slack notification skipped: %s\n' "$1" >&2
-    return 0
-}
-
 # JOB IDから色を生成 (6桁16進数カラーコード)
 generate_color_from_id() {
     local job_id="$1"
     # JOB IDをハッシュ化して色に変換
-    local hash
-    if command -v md5sum >/dev/null 2>&1; then
-        hash=$(printf '%s' "$job_id" | md5sum | cut -c1-6) || hash=""
-    elif command -v md5 >/dev/null 2>&1; then
-        hash=$(printf '%s' "$job_id" | md5 | cut -c1-6) || hash=""
-    else
-        hash=""
-    fi
-    if [ -z "$hash" ]; then
-        _notify_warning "could not generate a notification color"
-        printf '#808080\n'
-        return 0
-    fi
+    local hash=$(echo -n "$job_id" | md5sum | cut -c1-6)
     echo "#${hash}"
-    return 0
 }
 
 # Slack通知を送信 (attachments形式で色付き)
@@ -35,17 +16,24 @@ notify_slack() {
     local fields="$4"
     
     if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+        echo "⚠️ Slack notification skipped: SLACK_WEBHOOK_URL is not set." >&2
         return 0
     fi
-
-    if ! command -v jq >/dev/null 2>&1; then
-        _notify_warning "jq is not available"
+    
+    # エラーでジョブが落ちないように一時的に set +e する
+    set +e
+    
+    # jq が存在しない場合は通知をスキップ
+    if ! command -v jq &>/dev/null; then
+        echo "⚠️ Slack notification skipped: jq command not found." >&2
+        set -e
         return 0
     fi
-
+    
     # JSON構築
     local payload
-    if ! payload=$(jq -nc \
+    local jq_exit_code=0
+    payload=$(jq -nc \
         --arg title "$title" \
         --arg emoji "$emoji" \
         --arg color "$color" \
@@ -56,117 +44,117 @@ notify_slack() {
                 color: $color,
                 fields: ($fields | split("\n") | map(split(" : ") | {title: .[0], value: .[1], short: true}))
             }]
-        }'); then
-        _notify_warning "could not build the Slack JSON payload"
+        }' 2>/dev/null)
+    jq_exit_code=$?
+    
+    if [ ${jq_exit_code} -ne 0 ] || [ -z "${payload}" ]; then
+        echo "⚠️ Slack notification skipped: Failed to build JSON payload via jq (exit code: ${jq_exit_code})." >&2
+        set -e
         return 0
     fi
-
-    if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 10 -X POST \
+    
+    local curl_output
+    local curl_exit_code=0
+    # curlのエラーも出力にキャプチャするために -sS (silent but show errors) を使う
+    curl_output=$(curl -sS -X POST \
         -H 'Content-type: application/json' \
-        --data "$payload" \
-        "${SLACK_WEBHOOK_URL}" \
-        > /dev/null; then
-        _notify_warning "webhook request failed"
+        --data "${payload}" \
+        "${SLACK_WEBHOOK_URL}" 2>&1)
+    curl_exit_code=$?
+    
+    if [ ${curl_exit_code} -ne 0 ]; then
+        echo "⚠️ Slack notification failed: curl error (exit code: ${curl_exit_code}). Output: ${curl_output}" >&2
+    elif [ "${curl_output}" != "ok" ]; then
+        echo "⚠️ Slack notification failed: Slack API error. Output: ${curl_output}" >&2
     fi
-    return 0
+    
+    # 元に戻す
+    set -e
 }
 
 _array_fields() {
-    if [ "${RUN_MODE:-single}" != "array" ]; then
-        return 0
-    fi
-
-    if [[ "${ARRAY_TASK_ID:-}" =~ ^[0-9]+$ ]]; then
-        echo "TASK : $((ARRAY_TASK_ID + 1))/${ARRAY_TOTAL_TASKS:-unknown}"
-    else
-        echo "TASK : unknown/${ARRAY_TOTAL_TASKS:-unknown}"
-    fi
-    echo "OPTS : ${ARRAY_TASK_OPTIONS:-unknown}"
-    return 0
+    [ "${RUN_MODE:-}" != "array" ] && return
+    echo "TASK : $((SLURM_ARRAY_TASK_ID + 1))/${ARRAY_TOTAL_TASKS}"
+    echo "OPTS : ${ARRAY_TASK_OPTIONS}"
 }
 
 _extra_fields() {
     if [ -n "${ADD_NOTIFY:-}" ]; then
         echo "${ADD_NOTIFY}"
     fi
-    return 0
 }
 
-_optional_fields() {
+_append_optional_fields() {
+    local -n _fields_ref=$1
     local array_info extra_info
 
     array_info=$(_array_fields)
-    [ -n "${array_info}" ] && printf '%s\n' "${array_info}"
+    if [ -n "${array_info}" ]; then
+        _fields_ref="${_fields_ref}
+${array_info}"
+    fi
 
     extra_info=$(_extra_fields)
-    [ -n "${extra_info}" ] && printf '%s\n' "${extra_info}"
-    return 0
+    if [ -n "${extra_info}" ]; then
+        _fields_ref="${_fields_ref}
+${extra_info}"
+    fi
 }
 
 notify_start() {
-    [ "${SLACK_NOTIFY_ON_START:-1}" = "1" ] || return 0
+    [ "${SLACK_NOTIFY_ON_START:-1}" -eq 1 ] || return 0
 
-    local color
-    color=$(generate_color_from_id "${JOB_ID:-unknown}")
-    local fields="EXP : ${EXP_NAME:-unknown}
-JOB : ${JOB_ID:-unknown}
-PART : ${JOB_PARTITION:-unknown}
-TIME : ${JOB_TIME_LIMIT:-unknown}"
+    local color=$(generate_color_from_id "${SLURM_JOB_ID}")
+    local fields="EXP : ${EXP_NAME}
+JOB : ${SLURM_JOB_ID}
+PART : ${SLURM_JOB_PARTITION}
+TIME : ${DEFAULT_TIME}"
 
-    local optional
-    optional=$(_optional_fields)
-    [ -n "${optional}" ] && fields="${fields}
-${optional}"
+    _append_optional_fields fields
     notify_slack "STARTED" "🚀" "$color" "$fields"
-    return 0
 }
 
 notify_finish() {
-    [ "${SLACK_NOTIFY_ON_FINISH:-1}" = "1" ] || return 0
+    [ "${SLACK_NOTIFY_ON_FINISH:-1}" -eq 1 ] || return 0
 
-    local color
-    color=$(generate_color_from_id "${JOB_ID:-unknown}")
-    local fields="EXP : ${EXP_NAME:-unknown}
-JOB : ${JOB_ID:-unknown}"
+    local color=$(generate_color_from_id "${SLURM_JOB_ID}")
+    local fields="EXP : ${EXP_NAME}
+JOB : ${SLURM_JOB_ID}"
 
-    local optional
-    optional=$(_optional_fields)
-    [ -n "${optional}" ] && fields="${fields}
-${optional}"
+    _append_optional_fields fields
     notify_slack "FINISHED" "✅" "$color" "$fields"
-    return 0
 }
 
 notify_fail() {
-    [ "${SLACK_NOTIFY_ON_FAIL:-1}" = "1" ] || return 0
+    [ "${SLACK_NOTIFY_ON_FAIL:-1}" -eq 1 ] || return 0
 
-    local color
-    color=$(generate_color_from_id "${JOB_ID:-unknown}")
-    local fields="EXP : ${EXP_NAME:-unknown}
-JOB : ${JOB_ID:-unknown}
+    local color=$(generate_color_from_id "${SLURM_JOB_ID}")
+    local fields="EXP : ${EXP_NAME}
+JOB : ${SLURM_JOB_ID}
 STATE : $1"
 
-    local optional
-    optional=$(_optional_fields)
-    [ -n "${optional}" ] && fields="${fields}
-${optional}"
+    _append_optional_fields fields
     notify_slack "FAILED" "❌" "$color" "$fields"
-    return 0
 }
 
 notify_fail_fast() {
-    [ "${SLACK_NOTIFY_ON_FAIL:-1}" = "1" ] || return 0
+    [ "${SLACK_NOTIFY_ON_FAIL:-1}" -eq 1 ] || return 0
 
-    local color
-    color=$(generate_color_from_id "${JOB_ID:-unknown}")
-    local fields="EXP : ${EXP_NAME:-unknown}
-JOB : ${JOB_ID:-unknown}
+    local color=$(generate_color_from_id "${SLURM_JOB_ID}")
+    local fields="EXP : ${EXP_NAME}
+JOB : ${SLURM_JOB_ID}
 STATE : $1"
 
-    local optional
-    optional=$(_optional_fields)
-    [ -n "${optional}" ] && fields="${fields}
-${optional}"
+    # SCRATCH_DIR is wiped (rm -rf) unconditionally near the end of
+    # slurm_entry.sh, including on this TERM/time-limit-warning path -- if a
+    # job is writing unsynced results there (e.g. per-shard checkpoints not
+    # yet copied back to shared storage), this is the last chance to retrieve
+    # them before the job actually ends.
+    if [ -n "${SCRATCH_DIR:-}" ] && [ -d "${SCRATCH_DIR}" ]; then
+        fields="${fields}
+SCRATCH : ${SCRATCH_DIR} (retrieve now if unsynced -- deleted when the job ends)"
+    fi
+
+    _append_optional_fields fields
     notify_slack "INTERRUPTED" "⚡" "$color" "$fields"
-    return 0
 }

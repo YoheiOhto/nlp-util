@@ -1,53 +1,13 @@
 #!/bin/bash
-# このファイルは run_slurm.sh の末尾から `source` される前提で書かれている
-# （run_slurm.sh 自体が #SBATCH ヘッダーを持つ実際の投入スクリプトであり、
-# RUN_MODE/RUN_COMMAND/GRID_ARGS 等は既にその時点で定義済みのため、ここで
-# run_slurm.sh を再度 source する必要はない。再度sourceすると、run_slurm.sh
-# 末尾のこのファイルへのsource呼び出し自体も再実行され、循環してしまう）。
 
 set -euo pipefail
 
 # =====================================================
-# Bootstrap validation
+# Config
 # =====================================================
 
-# PROJECT_ROOT は scripts/ 配下のヘルパーを読むために最初に必要。この時点では
-# まだ _bootstrap_fail を定義できない（ヘルパー未読込）ので直接失敗させる。
-if [ -z "${PROJECT_ROOT:-}" ]; then
-    printf 'FATAL INIT [MISSING_PROJECT_ROOT]: PROJECT_ROOT is not set. Source slurm_entry.sh from run_slurm.sh.\n' >&2
-    exit 2
-fi
-
-# run_metadata.yaml の読み書きヘルパー。_bootstrap_fail からも使うため先に読む。
-# （以前はこのファイルを python3 + yaml.safe_dump で書いていたが、ホストの
-#  python3 に PyYAML がある保証がなく、シグナルハンドラ内で python を起動する
-#  形にもなっていたため、printf ベースの実装に統一した）
-if ! source "${PROJECT_ROOT}/scripts/metadata.sh"; then
-    printf 'FATAL INIT [METADATA_HELPER_LOAD_FAILED]: could not source scripts/metadata.sh\n' >&2
-    exit 2
-fi
-
-_bootstrap_fail() {
-    local reason="$1"
-    local detail="$2"
-
-    printf 'FATAL INIT [%s]: %s\n' "${reason}" "${detail}" >&2
-
-    if [ -n "${JOB_LOG_DIR:-}" ] && [ -d "${JOB_LOG_DIR}" ]; then
-        printf '%s FATAL INIT [%s]: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "${reason}" "${detail}" \
-            >> "${JOB_LOG_DIR}/bootstrap_failure.log"
-        metadata_init "${JOB_LOG_DIR}/run_metadata.yaml" \
-            status         "FAILED" \
-            failure_phase  "bootstrap" \
-            fail_reason    "${reason}"
-    fi
-
-    exit 2
-}
-
-if [ -z "${EXP_NAME:-}" ]; then
-    _bootstrap_fail "MISSING_EXP_NAME" "EXP_NAME is not set. Source slurm_entry.sh from an experiment run_slurm.sh."
-fi
+source "${EXP_DIR}/run_slurm.sh"
+source "${PROJECT_ROOT}/scripts/notify_slack.sh"
 
 # =====================================================
 # Scheduler abstraction
@@ -90,13 +50,9 @@ fi
 
 RUN_MODE="${RUN_MODE:-single}"
 
-case "${RUN_MODE}" in
-    single|array|seq)
-        ;;
-    *)
-        _bootstrap_fail "INVALID_RUN_MODE" "RUN_MODE must be one of single, array, or seq; got '${RUN_MODE}'."
-        ;;
-esac
+# =====================================================
+# Directories
+# =====================================================
 
 # array の場合はジョブIDにarray_idを付与
 if [ "${RUN_MODE}" = "array" ]; then
@@ -105,44 +61,12 @@ else
     export JOB_LOG_DIR="${PROJECT_ROOT}/logs/${EXP_NAME}/${JOB_ID}"
 fi
 
-if ! mkdir -p "${JOB_LOG_DIR}"; then
-    _bootstrap_fail "LOG_DIRECTORY_CREATION_FAILED" "Could not create ${JOB_LOG_DIR}."
-fi
+mkdir -p "${JOB_LOG_DIR}"
 
-if ! ln -sfn "${JOB_LOG_DIR}" "${PROJECT_ROOT}/logs/${EXP_NAME}/latest"; then
-    _bootstrap_fail "LATEST_LOG_LINK_FAILED" "Could not update logs/${EXP_NAME}/latest."
-fi
+ln -sfn "${JOB_LOG_DIR}" \
+    "${PROJECT_ROOT}/logs/${EXP_NAME}/latest"
 
 export SLURM_LOG_FILE="${JOB_LOG_DIR}/slurm.out"
-
-if ! source "${PROJECT_ROOT}/scripts/notify_slack.sh"; then
-    _bootstrap_fail "NOTIFICATION_HELPER_LOAD_FAILED" "Could not source scripts/notify_slack.sh."
-fi
-
-# SIF_PATH の解決規則を tools/uv_sync.sh・tools/start_jupyter.sh と共有する
-# （export済み → .env → env/env.sif）。ここで解決しておかないと、
-# SIF_PATH を export していない環境では _run_single が無言でホスト実行に
-# フォールバックしてしまう。
-if ! source "${PROJECT_ROOT}/scripts/sif_env.sh"; then
-    _bootstrap_fail "SIF_HELPER_LOAD_FAILED" "Could not source scripts/sif_env.sh."
-fi
-
-resolve_sif_path "${PROJECT_ROOT}"
-
-# run_slurm.sh の #SBATCH --time= を直接読む（run_slurm.sh は #SBATCH ヘッダーに
-# しか --time を持たず、DEFAULT_TIME のようなbash変数はもう存在しないため）。
-if ! JOB_TIME_LIMIT=$(
-    sed -n 's/^#SBATCH --time=//p' "${PROJECT_ROOT}/experiments/${EXP_NAME}/run_slurm.sh" \
-        | head -n1
-); then
-    _bootstrap_fail "MISSING_TIME_LIMIT" "Could not read a #SBATCH --time directive from experiments/${EXP_NAME}/run_slurm.sh."
-fi
-
-if [ -z "${JOB_TIME_LIMIT}" ]; then
-    _bootstrap_fail "MISSING_TIME_LIMIT" "The #SBATCH --time directive in experiments/${EXP_NAME}/run_slurm.sh is empty."
-fi
-
-export JOB_TIME_LIMIT
 
 # =====================================================
 # Metadata helper
@@ -153,39 +77,62 @@ update_metadata() {
     local value="$2"
     local yaml_file="${JOB_LOG_DIR}/run_metadata.yaml"
 
-    if ! metadata_set "${yaml_file}" "${key}" "${value}"; then
-        printf 'FATAL FINALIZATION: could not record %s=%s in run_metadata.yaml\n' \
-            "${key}" "${value}" >&2
-        printf '%s FATAL FINALIZATION: could not record %s=%s in run_metadata.yaml\n' \
-            "$(date '+%Y-%m-%dT%H:%M:%S%z')" "${key}" "${value}" \
-            >> "${JOB_LOG_DIR}/finalization_failure.log"
-    fi
-    return 0
+    python3 - <<EOF
+from pathlib import Path
+import yaml
+
+path = Path("${yaml_file}")
+data = yaml.safe_load(path.read_text())
+data["${key}"] = "${value}"
+path.write_text(yaml.safe_dump(data, sort_keys=False))
+EOF
 }
 
 # =====================================================
 # Metadata
 # =====================================================
 
-GIT_COMMIT=$(git -C "${PROJECT_ROOT}" rev-parse HEAD 2>/dev/null || printf 'unknown')
+python3 - <<EOF
+from pathlib import Path
+import yaml
 
-METADATA_ARGS=(
-    exp_name   "${EXP_NAME}"
-    job_id     "${JOB_ID}"
-    partition  "${JOB_PARTITION}"
-    node       "${NODENAME}"
-    git_commit "${GIT_COMMIT}"
-    time_limit "${JOB_TIME_LIMIT:-unknown}"
-    run_mode   "${RUN_MODE}"
-    status     "RUNNING"
+data = {
+    "exp_name":   "${EXP_NAME}",
+    "job_id":     "${JOB_ID}",
+    "partition":  "${JOB_PARTITION}",
+    "node":       "${NODENAME}",
+    "git_commit": "$(git -C "${PROJECT_ROOT}" rev-parse HEAD)",
+    "start_time": "$(date --iso-8601=seconds)",
+    "time_limit": "${DEFAULT_TIME}",
+    "run_mode":   "${RUN_MODE}",
+    "status":     "RUNNING",
+}
+
+if "${RUN_MODE}" == "array":
+    data["array_task_id"] = "${ARRAY_TASK_ID}"
+
+Path("${JOB_LOG_DIR}/run_metadata.yaml").write_text(
+    yaml.safe_dump(data, sort_keys=False)
 )
+EOF
 
-if [ "${RUN_MODE}" = "array" ]; then
-    METADATA_ARGS+=(array_task_id "${ARRAY_TASK_ID}")
-fi
-
-if ! metadata_init "${JOB_LOG_DIR}/run_metadata.yaml" "${METADATA_ARGS[@]}"; then
-    _bootstrap_fail "METADATA_INITIALIZATION_FAILED" "Could not create ${JOB_LOG_DIR}/run_metadata.yaml."
+# The commit hash alone is insufficient when an approved experiment is run
+# from a dirty worktree.  Preserve the exact small source/config files that
+# define this job, plus hashes and the repository diff visible at job start.
+# Generated outputs and large inputs are deliberately not copied here.
+SOURCE_SNAPSHOT_DIR="${JOB_LOG_DIR}/source_snapshot"
+mkdir -p "${SOURCE_SNAPSHOT_DIR}"
+find "${EXP_DIR}" -maxdepth 1 -type f \
+    \( -name '*.py' -o -name '*.yml' -o -name '*.yaml' -o -name '*.sh' -o -name '*.md' \) \
+    -print0 | sort -z | while IFS= read -r -d '' source_file; do
+        cp -- "${source_file}" "${SOURCE_SNAPSHOT_DIR}/$(basename "${source_file}")"
+    done
+find "${SOURCE_SNAPSHOT_DIR}" -maxdepth 1 -type f -print0 | sort -z | \
+    xargs -0 sha256sum > "${JOB_LOG_DIR}/source_snapshot.sha256"
+git -C "${PROJECT_ROOT}" status --short > "${JOB_LOG_DIR}/git_status.txt"
+git -C "${PROJECT_ROOT}" diff --binary HEAD > "${JOB_LOG_DIR}/git_diff.patch"
+if [ "${SCHEDULER}" = "slurm" ] && command -v scontrol >/dev/null 2>&1; then
+    scontrol show job "${SLURM_JOB_ID}" > "${JOB_LOG_DIR}/scheduler_job_spec.txt"
 fi
 
 # =====================================================
@@ -241,11 +188,6 @@ _move_slurm_log() {
 # =====================================================
 
 _get_job_state() {
-    if [ "${SCHEDULER}" = "local" ]; then
-        echo "COMPLETED"
-        return 0
-    fi
-
     if [ "${SCHEDULER}" = "pbs" ]; then
         if command -v qstat &>/dev/null; then
             local target_id="${JOB_ID}"
@@ -297,7 +239,7 @@ _get_job_state() {
             | awk -F'|' -v id="${SLURM_JOB_ID}" '$1==id {print $2; exit}'
         elif command -v scontrol &>/dev/null; then
             scontrol show job "${SLURM_JOB_ID}" 2>/dev/null \
-                | sed -n 's/.*JobState=\([^ ]*\).*/\1/p' || echo "UNKNOWN"
+                | grep -oP 'JobState=\K\w+' || echo "UNKNOWN"
         else
             echo "UNKNOWN"
         fi
@@ -312,7 +254,7 @@ _handle_final_state() {
     sleep 3
 
     local job_state
-    job_state=$(_get_job_state)
+    job_state=$(_get_job_state || echo "UNKNOWN")
 
     case "${job_state}" in
 
@@ -364,19 +306,6 @@ _handle_final_state() {
 
                 notify_fail "NONZERO_EXIT (code ${exit_code})"
 
-            fi
-            ;;
-
-        UNKNOWN|"")
-            if [ "${exit_code}" -eq 0 ]; then
-                update_metadata "status" "COMPLETED"
-                update_metadata "scheduler_state" "UNKNOWN"
-                notify_finish
-            else
-                update_metadata "status" "FAILED"
-                update_metadata "scheduler_state" "UNKNOWN"
-                update_metadata "fail_reason" "NONZERO_EXIT_${exit_code}_SCHEDULER_STATE_UNKNOWN"
-                notify_fail "NONZERO_EXIT (code ${exit_code}; scheduler state unknown)"
             fi
             ;;
 
@@ -547,16 +476,6 @@ export OUTPUT_DIR="${PROJECT_ROOT}/outputs/${EXP_NAME}"
 
 mkdir -p "${OUTPUT_DIR}"
 
-if [ "${USE_LOCAL_SSD_OUTPUT:-0}" -eq 1 ]; then
-
-    mkdir -p "${SCRATCH_DIR}/outputs"
-
-    # lib/output_utils.get_run_dir() writes here when set; the
-    # completed-guard still always checks OUTPUT_DIR (project_root),
-    # never this scratch path.
-    export OUTPUT_ROOT="${SCRATCH_DIR}/outputs"
-fi
-
 # =====================================================
 # Save command
 # =====================================================
@@ -596,17 +515,7 @@ _run_single() {
                 ${cmd}
             " 1>&2 &
     else
-        # apptainer/SIF が使えない場合のフォールバック。ホストの環境で動くため
-        # コンテナ内と同じ結果になる保証がなく、再現性の観点では望ましくない。
-        # 本来は make build_env で env/env.sif を用意しておくこと。
-        echo "⚠️ ============================================================" >&2
-        echo "⚠️  FALLBACK: running on the HOST, not inside Apptainer." >&2
-        echo "⚠️    apptainer : $(command -v apptainer || echo 'not found')" >&2
-        echo "⚠️    SIF_PATH  : ${SIF_PATH:-<unset>}" >&2
-        echo "⚠️    exists    : $([ -f "${SIF_PATH:-}" ] && echo yes || echo no)" >&2
-        echo "⚠️  Results are NOT reproducible against the container image." >&2
-        echo "⚠️  Build it with: make build_env p=<partition>" >&2
-        echo "⚠️ ============================================================" >&2
+        echo "⚠️ Apptainer not found or SIF_PATH not set. Running command on host system." >&2
         bash -c "
             set -euo pipefail
             if [ -f ${PROJECT_ROOT}/.venv/bin/activate ]; then
@@ -681,72 +590,14 @@ if [ -n "${POST_NATIVE_COMMAND:-}" ]; then
 fi
 
 # =====================================================
-# Output sync-back（scratch → /workspace/outputs）
-# USE_LOCAL_SSD_OUTPUT=1 の場合、experiment.py は completion.json を含む
-# すべての出力を SCRATCH_DIR/outputs/ 配下に書いている。次回以降の
-# completed ガードが正しく機能するよう、scratch を消す前に必ず
-# OUTPUT_DIR（project_root 側）へ回収する。
-# 異常終了（EXIT_CODE!=0 または TERMINATED=1）の場合は不完全な出力で
-# completed ガードを誤らせないよう、sync-back 自体を行わない。
-# =====================================================
-
-if [ "${EXIT_CODE}" -eq 0 ] \
-   && [ "${TERMINATED}" -eq 0 ] \
-   && [ "${USE_LOCAL_SSD_OUTPUT:-0}" -eq 1 ] \
-   && [ -d "${SCRATCH_DIR}/outputs/${EXP_NAME}" ]; then
-
-    rsync -a \
-        "${SCRATCH_DIR}/outputs/${EXP_NAME}/" \
-        "${OUTPUT_DIR}/"
-fi
-
-# =====================================================
 # Scratch cleanup
-# SCRATCH_DIR はジョブごとに固有のディレクトリなので、削除せずに残すと
-# ジョブを回すたびに /scratch の使用量が際限なく積み上がっていく。
-# 正常終了（EXIT_CODE=0 かつ TERMINATED=0。Output sync-back が必要な
-# 場合は既にrsync済み）の場合のみ自動削除する。script エラーやシグナル
-# 受信（on_error/on_terminate 経由）で異常終了した場合は削除せず、
-# デバッグ・手動回収のため scratch はそのまま残す。
-#
-# パス検証は realpath でシンボリックリンクや ".." を解決した正規化パス
-# 同士を比較する。SCRATCH_DIR は EXP_NAME を含んで組み立てられており、
-# 単純な文字列前方一致（"${SCRATCH_DIR}" == "/scratch/${USER}/"*）では
-# EXP_NAME に ".." が含まれるケースで /scratch/${USER}/ 配下から実際には
-# 外れたパスを誤って許可してしまうため。
 # =====================================================
 
-SCRATCH_ROOT_REAL=""
-SCRATCH_DIR_REAL=""
+if [ -n "${SCRATCH_DIR:-}" ] \
+   && [ -d "${SCRATCH_DIR}" ] \
+   && [[ "${SCRATCH_DIR}" == /scratch/* ]]; then
 
-if [ -d "/scratch/${USER}" ]; then
-    SCRATCH_ROOT_REAL=$(realpath -e "/scratch/${USER}" 2>/dev/null || true)
-fi
-
-if [ -n "${SCRATCH_DIR:-}" ] && [ -d "${SCRATCH_DIR}" ]; then
-    SCRATCH_DIR_REAL=$(realpath -e "${SCRATCH_DIR}" 2>/dev/null || true)
-fi
-
-SCRATCH_DIR_IS_SAFE=0
-if [ -n "${SCRATCH_ROOT_REAL}" ] \
-   && [ -n "${SCRATCH_DIR_REAL}" ] \
-   && [ "${SCRATCH_DIR_REAL}" != "${SCRATCH_ROOT_REAL}" ] \
-   && [[ "${SCRATCH_DIR_REAL}" == "${SCRATCH_ROOT_REAL}/"* ]]; then
-    SCRATCH_DIR_IS_SAFE=1
-fi
-
-if [ "${SCRATCH_DIR_IS_SAFE}" -eq 1 ] \
-   && [ "${EXIT_CODE}" -eq 0 ] \
-   && [ "${TERMINATED}" -eq 0 ]; then
-
-    rm -rf "${SCRATCH_DIR_REAL}"
-    echo "🧹 Removed scratch directory: ${SCRATCH_DIR_REAL}"
-
-elif [ "${SCRATCH_DIR_IS_SAFE}" -eq 1 ]; then
-
-    echo "⚠️  Scratch directory used during this run was NOT auto-deleted: ${SCRATCH_DIR_REAL}" >&2
-    echo "⚠️  Please remove it manually once no longer needed (node-local SSD capacity)." >&2
-
+    rm -rf "${SCRATCH_DIR}"
 fi
 
 # =====================================================
@@ -762,3 +613,8 @@ fi
 # =====================================================
 
 _handle_final_state "${EXIT_CODE}" "end"
+
+# Propagate the child status to Slurm.  Without this explicit exit the last
+# successful notification/metadata command makes a failed Python child look
+# COMPLETED in sacct even though run_metadata.yaml says FAILED.
+exit "${EXIT_CODE}"

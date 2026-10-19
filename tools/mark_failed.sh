@@ -29,7 +29,6 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel)
 
 EXP_ROOT="${PROJECT_ROOT}/experiments"
 OUT_ROOT="${PROJECT_ROOT}/outputs"
-LOG_ROOT="${PROJECT_ROOT}/logs"
 
 # =========================================================
 # Helper: resolve experiment dir from ID or name
@@ -59,7 +58,7 @@ _latest_exp() {
         -maxdepth 1 \
         -type d \
         ! -name latest \
-        -exec basename {} \; 2>/dev/null \
+        -printf "%f\n" 2>/dev/null \
     | grep -E '^[0-9]{4}_' \
     | sort -t '_' -k1,1n \
     | tail -n1
@@ -84,7 +83,6 @@ else
 fi
 
 OUT_DIR="${OUT_ROOT}/${EXP_NAME}"
-LOG_DIR="${LOG_ROOT}/${EXP_NAME}"
 
 # =========================================================
 # Validation
@@ -118,7 +116,6 @@ NEW_EXP_NAME="${EXP_NAME}_FAILED_${DATE}_${SAFE_REASON}"
 
 NEW_EXP_DIR="${EXP_ROOT}/${NEW_EXP_NAME}"
 NEW_OUT_DIR="${OUT_ROOT}/${NEW_EXP_NAME}"
-NEW_LOG_DIR="${LOG_ROOT}/${NEW_EXP_NAME}"
 
 # =========================================================
 # Safety check
@@ -130,12 +127,6 @@ if [ -e "${NEW_EXP_DIR}" ]; then
     exit 1
 fi
 
-if [ -e "${NEW_LOG_DIR}" ]; then
-    echo "❌ FAILED log directory already exists:"
-    echo "   logs/${NEW_EXP_NAME}"
-    exit 1
-fi
-
 # =========================================================
 # Rename directories
 # =========================================================
@@ -144,22 +135,6 @@ mv "${EXP_DIR}" "${NEW_EXP_DIR}"
 
 if [ -d "${OUT_DIR}" ]; then
     mv "${OUT_DIR}" "${NEW_OUT_DIR}"
-fi
-
-# =========================================================
-# Rename logs/
-# logs/ を置き去りにすると logs/{旧名} に対応する experiments/{旧名} が
-# 無くなるため、make clean_failed が「孤立ログ」として削除してしまう。
-# =========================================================
-
-if [ -d "${LOG_DIR}" ]; then
-    mv "${LOG_DIR}" "${NEW_LOG_DIR}"
-
-    # logs/{exp}/latest は旧名を含む絶対パスを指しているので張り直す
-    if [ -L "${NEW_LOG_DIR}/latest" ]; then
-        LATEST_TARGET=$(readlink "${NEW_LOG_DIR}/latest")
-        ln -sfn "${NEW_LOG_DIR}/$(basename "${LATEST_TARGET}")" "${NEW_LOG_DIR}/latest"
-    fi
 fi
 
 # =========================================================
@@ -179,20 +154,20 @@ EOF
 LATEST_LINK="${EXP_ROOT}/latest"
 
 if [ -L "${LATEST_LINK}" ]; then
-    CURRENT_TARGET=$(readlink "${LATEST_LINK}")
+    CURRENT_TARGET=$(readlink -f "${LATEST_LINK}")
 
-    if [ "${CURRENT_TARGET}" = "${EXP_DIR}" ] || [ "${CURRENT_TARGET}" = "${EXP_NAME}" ]; then
-        ln -sfn "${NEW_EXP_NAME}" "${LATEST_LINK}"
+    if [ "${CURRENT_TARGET}" = "${EXP_DIR}" ]; then
+        ln -sfn "${NEW_EXP_DIR}" "${LATEST_LINK}"
     fi
 fi
 
 LATEST_OUT_LINK="${OUT_ROOT}/latest"
 
 if [ -L "${LATEST_OUT_LINK}" ]; then
-    CURRENT_TARGET=$(readlink "${LATEST_OUT_LINK}")
+    CURRENT_TARGET=$(readlink -f "${LATEST_OUT_LINK}")
 
-    if [ "${CURRENT_TARGET}" = "${OUT_DIR}" ] || [ "${CURRENT_TARGET}" = "${EXP_NAME}" ]; then
-        ln -sfn "${NEW_EXP_NAME}" "${LATEST_OUT_LINK}"
+    if [ "${CURRENT_TARGET}" = "${OUT_DIR}" ]; then
+        ln -sfn "${NEW_OUT_DIR}" "${LATEST_OUT_LINK}"
     fi
 fi
 

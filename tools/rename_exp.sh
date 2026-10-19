@@ -29,7 +29,6 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel)
 
 EXP_ROOT="${PROJECT_ROOT}/experiments"
 OUT_ROOT="${PROJECT_ROOT}/outputs"
-LOG_ROOT="${PROJECT_ROOT}/logs"
 
 # =========================================================
 # Helper: resolve experiment dir from ID or name
@@ -60,7 +59,6 @@ _resolve_exp() {
 EXP_DIR=$(_resolve_exp "$INPUT")
 EXP_NAME=$(basename "${EXP_DIR}")
 OUT_DIR="${OUT_ROOT}/${EXP_NAME}"
-LOG_DIR="${LOG_ROOT}/${EXP_NAME}"
 
 # =========================================================
 # Validation
@@ -120,7 +118,6 @@ NEW_EXP_NAME="${PREFIX}_${SAFE_LABEL}${FAILED_SUFFIX}"
 
 NEW_EXP_DIR="${EXP_ROOT}/${NEW_EXP_NAME}"
 NEW_OUT_DIR="${OUT_ROOT}/${NEW_EXP_NAME}"
-NEW_LOG_DIR="${LOG_ROOT}/${NEW_EXP_NAME}"
 
 # =========================================================
 # Conflict check
@@ -129,12 +126,6 @@ NEW_LOG_DIR="${LOG_ROOT}/${NEW_EXP_NAME}"
 if [ -e "${NEW_EXP_DIR}" ]; then
     echo "❌ Target experiment already exists:"
     echo "   ${NEW_EXP_NAME}"
-    exit 1
-fi
-
-if [ -e "${NEW_LOG_DIR}" ]; then
-    echo "❌ Target log directory already exists:"
-    echo "   logs/${NEW_EXP_NAME}"
     exit 1
 fi
 
@@ -149,37 +140,25 @@ if [ -d "${OUT_DIR}" ]; then
 fi
 
 # =========================================================
-# Rename logs/
-# logs/ を置き去りにすると logs/{旧名} に対応する experiments/{旧名} が
-# 無くなるため、make clean_failed が「孤立ログ」として削除してしまう。
-# =========================================================
-
-if [ -d "${LOG_DIR}" ]; then
-    mv "${LOG_DIR}" "${NEW_LOG_DIR}"
-
-    # logs/{exp}/latest は旧名を含む絶対パスを指しているので張り直す
-    if [ -L "${NEW_LOG_DIR}/latest" ]; then
-        LATEST_TARGET=$(readlink "${NEW_LOG_DIR}/latest")
-        ln -sfn "${NEW_LOG_DIR}/$(basename "${LATEST_TARGET}")" "${NEW_LOG_DIR}/latest"
-    fi
-fi
-
-# =========================================================
 # Rewrite internal references
 # =========================================================
 
 RUN_SCRIPT="${NEW_EXP_DIR}/run_slurm.sh"
 
 if [ -f "${RUN_SCRIPT}" ]; then
-    sed -i.bak "s|${EXP_NAME}|${NEW_EXP_NAME}|g" "${RUN_SCRIPT}"
-    rm -f "${RUN_SCRIPT}.bak"
+    sed -i "s|${EXP_NAME}|${NEW_EXP_NAME}|g" "${RUN_SCRIPT}"
 fi
 
 CONFIG_PATH="${NEW_EXP_DIR}/config.yml"
 
 if [ -f "${CONFIG_PATH}" ]; then
-    sed -i.bak "s|${EXP_NAME}|${NEW_EXP_NAME}|g" "${CONFIG_PATH}"
-    rm -f "${CONFIG_PATH}.bak"
+    sed -i "s|${EXP_NAME}|${NEW_EXP_NAME}|g" "${CONFIG_PATH}"
+fi
+
+METADATA_PATH="${NEW_EXP_DIR}/metadata.yaml"
+
+if [ -f "${METADATA_PATH}" ]; then
+    sed -i "s|${EXP_NAME}|${NEW_EXP_NAME}|g" "${METADATA_PATH}"
 fi
 
 # =========================================================
@@ -189,20 +168,20 @@ fi
 LATEST_LINK="${EXP_ROOT}/latest"
 
 if [ -L "${LATEST_LINK}" ]; then
-    CURRENT_TARGET=$(readlink "${LATEST_LINK}")
+    CURRENT_TARGET=$(readlink -f "${LATEST_LINK}")
 
-    if [ "${CURRENT_TARGET}" = "${EXP_DIR}" ] || [ "${CURRENT_TARGET}" = "${EXP_NAME}" ]; then
-        ln -sfn "${NEW_EXP_NAME}" "${LATEST_LINK}"
+    if [ "${CURRENT_TARGET}" = "${EXP_DIR}" ]; then
+        ln -sfn "${NEW_EXP_DIR}" "${LATEST_LINK}"
     fi
 fi
 
 LATEST_OUT_LINK="${OUT_ROOT}/latest"
 
 if [ -L "${LATEST_OUT_LINK}" ]; then
-    CURRENT_TARGET=$(readlink "${LATEST_OUT_LINK}")
+    CURRENT_TARGET=$(readlink -f "${LATEST_OUT_LINK}")
 
-    if [ "${CURRENT_TARGET}" = "${OUT_DIR}" ] || [ "${CURRENT_TARGET}" = "${EXP_NAME}" ]; then
-        ln -sfn "${NEW_EXP_NAME}" "${LATEST_OUT_LINK}"
+    if [ "${CURRENT_TARGET}" = "${OUT_DIR}" ]; then
+        ln -sfn "${NEW_OUT_DIR}" "${LATEST_OUT_LINK}"
     fi
 fi
 
