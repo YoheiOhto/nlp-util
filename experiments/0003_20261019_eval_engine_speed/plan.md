@@ -172,3 +172,6 @@
 - 資源は runx の DEFAULT_* で指定。partition と USR1 の余裕は runx が自動で決める。
 - 実装はサブエージェントが行い、親が plan と照合した。plan の承認部分は未変更（gate の digest 一致を確認）。
 - 0003: クライアントに `--save-detailed`（256トークン確認のため）、`--num-warmups 4`（plan の warm-up 4件）、`--top-p 1.0`（plan の generation_settings）、`--metadata`（再開時の取り違え防止）を付ける。vLLM の `--dtype bfloat16` は snapshot の dtype と同じ。llama-bench はサーバー停止後に実行する。
+
+### 2026-10-19 環境ジョブの取り消し
+- ユーザーの指示で、環境構築ジョブ 14480/14481（allinone への flash-attn 追加）を取り消し、実験を優先する。allinone venv は flash-attn なしのまま（store 側 lock sha256 f248bfde…）変わらないため、plan の「測定中に venv を変えない」目的はそのまま満たされる。flash-attn の追加は実験の後に行う。

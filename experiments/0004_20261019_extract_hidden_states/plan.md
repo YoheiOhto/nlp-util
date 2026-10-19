@@ -137,3 +137,6 @@ llama.cpp と vLLM で内部表現（hidden states）がどこまで取れるか
 - 資源は runx の DEFAULT_* で指定。partition と USR1 の余裕は runx が自動で決める。
 - 実装はサブエージェントが行い、親が plan と照合した。plan の承認部分は未変更（gate の digest 一致を確認）。
 - 0004: vllm-bf16-hidden タスクで最後のトークンの logits も語彙全体で保存する（`logprobs_mode=raw_logits`）。hidden states の値には影響しない追加の取得。`gpu_memory_utilization=0.80` は運用上の値。エンジン側の失敗は plan どおり unavailable として記録する。
+
+### 2026-10-19 環境ジョブの取り消し
+- ユーザーの指示で、環境構築ジョブ 14480/14481（allinone への flash-attn 追加）を取り消し、実験を優先する。allinone venv は flash-attn なしのまま（store 側 lock sha256 f248bfde…）変わらないため、plan の「測定中に venv を変えない」目的はそのまま満たされる。flash-attn の追加は実験の後に行う。
