@@ -153,3 +153,9 @@ experiments/latest
 .agentrun.lock
 unsloth_compiled_cache/
 .research/code-check/
+# nlp-envs (envs/): built images and local environments never go into Git
+*.sif
+*.sif.partial
+envs/.venv/
+nlp-envs-build-*.log
+nlp-envs-test-*.log
