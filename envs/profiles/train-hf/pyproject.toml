@@ -1,0 +1,60 @@
+# Profile "train-hf": fast Hugging Face training (full FT / LoRA / RL).
+# Speed-ups: liger-kernel (fused RMSNorm/RoPE/CE), kernels hub (prebuilt
+# FlashAttention via attn_implementation="kernels-community/flash-attn2"),
+# DeepSpeed ZeRO, bitsandbytes. The source-built flash-attn wheel is opt-in
+# (dependency group "flash", build.sh --with-flash-attn) because it compiles
+# for 1-3 hours.
+[project]
+name = "nlpenv-train-hf"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.14.1",
+    "transformers==5.20.1",
+    "trl==1.16.0",
+    "peft==0.21.2",
+    "accelerate",
+    "deepspeed==0.19.7",
+    "liger-kernel==0.8.4",
+    "kernels==0.17.2",
+    "bitsandbytes",
+    "datasets",
+    "huggingface-hub[hf-xet]",
+    "evaluate",
+    "sentence-transformers",
+    "scikit-learn",
+    "pandas",
+    "pyarrow",
+    "wandb",
+    "tqdm",
+    "pynvml",
+    "pytest",
+]
+
+[dependency-groups]
+flash = ["flash-attn==2.8.3.post2"]
+
+[tool.uv]
+package = false
+# Lock once for both CPU families so x86_64 (David) and aarch64 (Grace, Miyabi-G)
+# install the same resolved versions.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+
+# deepspeed and flash-attn import torch in setup.py; build them against the
+# same torch that is installed at runtime.
+[tool.uv.extra-build-dependencies]
+deepspeed = [{ requirement = "torch", match-runtime = true }]
+flash-attn = [{ requirement = "torch", match-runtime = true }, "ninja", "packaging", "psutil", "wheel"]

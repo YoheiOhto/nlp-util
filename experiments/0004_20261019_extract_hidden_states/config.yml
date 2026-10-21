@@ -1,0 +1,87 @@
+# ============================================================
+# Experiment Configuration
+# ============================================================
+# - Fixed hyperparameters go here.
+# - Variable dimensions (model, seed, prompt, ...) go in run_slurm.sh GRID_ARGS.
+# - Do NOT hardcode values you intend to sweep.
+# ============================================================
+# Approved spec: plan.md `experiment-conditions` (sha256 15efb370f7322e41726954bfa66effcc32372de164b6ee20929084ac987f8435).
+# The swept dimension is --task (one of the 7 task ids below).
+
+# --- Seeds (plan.seeds.values) ---
+seed: 0
+
+# --- Inputs (plan.data) ---
+prompts_file: experiments/0004_20261019_extract_hidden_states/inputs/prompts.json
+prompts_sha256: dcb137efa9dcb3eaf16d1aa699f802c0c8944587663aa2a8cb44885fce86a42b
+n_prompts: 16
+hf_snapshot: /workspace/david01/ohto/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218
+hf_revision: b968826d9c46dd6066d109eabc6255188de91218
+num_hidden_layers: 36
+hidden_size: 4096
+
+# --- Tokenization (plan.preprocessing.tokenization) ---
+add_special_tokens: false
+
+# --- Task definitions (plan.variants.tasks) ---
+tasks:
+  hf-bf16:
+    engine: hf
+    dtype: bfloat16
+    attn_implementation: sdpa
+  hf-fp32:
+    engine: hf
+    dtype: float32
+    attn_implementation: sdpa
+  vllm-bf16-hidden:
+    engine: vllm
+    mode: extract_hidden_states
+    dtype: bfloat16
+  vllm-bf16-pooling:
+    engine: vllm
+    mode: pooling
+    dtype: bfloat16
+  llamacpp-bf16:
+    engine: llamacpp
+    gguf: outputs/0001_20261019_preprocess_gguf_bf16/qwen3-8b/model-BF16.gguf
+  llamacpp-q8_0:
+    engine: llamacpp
+    gguf: outputs/0002_20261019_preprocess_gguf_quantize/qwen3-8b__q8_0/model-Q8_0.gguf
+  llamacpp-q4_k_m:
+    engine: llamacpp
+    gguf: outputs/0002_20261019_preprocess_gguf_quantize/qwen3-8b__q4_k_m/model-Q4_K_M.gguf
+
+# --- vLLM (plan.hyperparameters.batch.vllm, plan.prompt.generation_settings) ---
+vllm:
+  max_model_len: 4096
+  enable_chunked_prefill: false
+  enable_prefix_caching: false
+  # Required with chunked prefill off: one prompt (<= max_model_len) must fit in a step.
+  max_num_batched_tokens: 4096
+  # Operational (memory) setting, not a scientific condition.
+  gpu_memory_utilization: 0.80
+  extract_hidden_states:
+    max_tokens: 1
+    temperature: 0.0
+    # Full-vocabulary raw logits of the first generated position (= logits of the
+    # last prompt token) for the 0005 logits comparison; does not affect hidden states.
+    logprobs: -1
+    max_logprobs: -1
+    logprobs_mode: raw_logits
+  pooling:
+    task: token_embed
+    use_activation: false
+
+# --- llama.cpp (plan.hyperparameters.batch.llamacpp, plan.hyperparameters.precision) ---
+llamacpp:
+  n_ctx: 4096          # n_batch = n_ubatch = n_ctx (set inside dump_hidden)
+  flash_attn: true     # -fa on
+  n_gpu_layers: 999    # all layers on GPU
+  build_jobs: 16
+  source_dir: experiments/0004_20261019_extract_hidden_states/llamacpp_dump
+  cuda_stubs: /usr/local/cuda/lib64/stubs
+
+exp_id: 0004
+exp_name: 0004_20261019_extract_hidden_states
+created_date: 20261019
+git_commit: 57a2212a7857862e7c7ace8d5853717b66a0379d

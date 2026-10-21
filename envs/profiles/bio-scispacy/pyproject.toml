@@ -1,0 +1,28 @@
+# Profile "bio-scispacy": biomedical spaCy pipelines (scispacy, UMLS linker).
+# scispacy 0.6.2 requires numpy<2 and spacy<3.9, which conflicts with the
+# numpy 2 stack in "base" (a mixed install fails at import with
+# "numpy.dtype size changed"), so it gets its own CPU-only environment.
+# nmslib-metabrainz ships x86_64 wheels only; aarch64 compiles it from source.
+[project]
+name = "nlpenv-bio-scispacy"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "scispacy==0.6.2",
+    "spacy>=3.7,<3.9",
+    "numpy<2",
+    "pandas",
+    "polars",
+    "pyarrow",
+    "lxml",
+    "requests",
+    "tqdm",
+    "pytest",
+]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]

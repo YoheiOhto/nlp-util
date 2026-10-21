@@ -1,0 +1,36 @@
+# ============================================================
+# Experiment Configuration (0001 preprocess_gguf_bf16)
+# ============================================================
+# - Fixed values only. The swept dimension (--model) is in run_slurm.sh GRID_ARGS.
+# - All values below come from the approved plan.md (experiment-conditions JSON).
+# ============================================================
+
+# HF hub cache that holds the fixed snapshots (data.input_paths).
+hf_hub_dir: /workspace/david01/ohto/.cache/huggingface/hub
+
+# Fixed snapshot per model (data.identity / model.revision). Key = --model value = variant id.
+models:
+  qwen3-8b:
+    repo_id: Qwen/Qwen3-8B
+    snapshot: b968826d9c46dd6066d109eabc6255188de91218
+  qwen3-30b-a3b:
+    repo_id: Qwen/Qwen3-30B-A3B-Instruct-2507
+    snapshot: 0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe
+
+# Conversion (preprocessing.steps, hyperparameters.precision).
+outtype: bf16
+output_filename: model-BF16.gguf
+# gguf.LlamaFileType.MOSTLY_BF16 (llama.cpp v0.7.0 gguf-py constants.py).
+expected_file_type: 32
+expected_tensor_type: BF16
+
+# Runtime inside llamacpp.sif (environment.runtime / dependencies.conversion).
+converter_python: /opt/llama.cpp/venv/bin/python
+converter_script: /opt/llama.cpp/src/convert_hf_to_gguf.py
+gguf_py_path: /opt/llama.cpp/src/gguf-py
+sif_labels_file: /.singularity.d/labels.json
+expected_llamacpp_ref: v0.7.0
+expected_llamacpp_commit: 620d2225cc436ab0b001e3200e590e3b286ef9ab
+
+# Read size for streaming SHA-256 (bytes).
+sha256_chunk_bytes: 16777216

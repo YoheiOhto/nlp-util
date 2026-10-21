@@ -1,0 +1,10 @@
+{
+  "approved_by": "user",
+  "approved_at": "2026-10-19T10:20:00+09:00",
+  "evidence": "Chat message on 2026-10-19 (session with Claude Code): \"Issue #4 の plan 0001〜0005 の実装と実行を承認\" — approves implementation and execution of the plan versions listed in Issue #4",
+  "issue_url": "https://github.com/YoheiOhto/nlp-util/issues/4",
+  "plan_sha256": "15efb370f7322e41726954bfa66effcc32372de164b6ee20929084ac987f8435",
+  "profile": "slurm",
+  "valid_until": "2026-10-25T23:59:00+09:00",
+  "commands": [["runx", "0004", "--array"]]
+}

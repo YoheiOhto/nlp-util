@@ -1,0 +1,57 @@
+# Base image for every nlp-util profile.
+#
+# Contains CUDA + cuDNN (devel, so nvcc is available for JIT/source builds),
+# compilers and uv. Python packages are NOT installed here: each profile keeps
+# its own uv venv under envs/.store/<arch>/venvs/<profile>.
+#
+# nvidia/cuda images are multi-arch, so the same definition builds natively on
+# x86_64 (David etc.) and aarch64 (Grace, Miyabi-G). Build on a node of the
+# target architecture; no cross-build is attempted.
+#
+# CUDA 13.0 matches the R580 driver on David. Override with
+#   --build-arg CUDA_IMAGE=nvidia/cuda:<tag>
+Bootstrap: docker
+From: {{ CUDA_IMAGE }}
+
+%arguments
+    CUDA_IMAGE=nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
+
+%labels
+    org.nlp-util.image base
+    org.nlp-util.cuda-image {{ CUDA_IMAGE }}
+
+%environment
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Asia/Tokyo
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+    export CUDA_HOME=/usr/local/cuda
+    export PATH=/usr/local/cuda/bin:${PATH}
+
+%post
+    set -eu
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Asia/Tokyo
+    ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime
+    echo "Asia/Tokyo" > /etc/timezone
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        curl wget git git-lfs ca-certificates \
+        build-essential cmake ninja-build pkg-config ccache \
+        libssl-dev libffi-dev zlib1g-dev libbz2-dev liblzma-dev libzstd-dev \
+        libcurl4-openssl-dev libnuma-dev libomp-dev \
+        libgl1 libglib2.0-0 \
+        rdma-core libibverbs-dev \
+        vim less htop numactl pciutils tzdata
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+    # uv: pinned version for reproducibility.
+    curl -LsSf https://astral.sh/uv/0.13.1/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
+    uv --version
+
+%test
+    nvcc --version
+    uv --version
+    cmake --version

@@ -1,0 +1,41 @@
+# Profile "serve-vllm": latest vLLM for high-throughput generation.
+# vllm 0.31.0 pins torch==2.13.0, flashinfer-python==0.7.0.post1 and
+# transformers<5.18 (PyPI metadata checked 2026-10-17).
+[project]
+name = "nlpenv-serve-vllm"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "vllm==0.31.0",
+    "torch==2.13.0",
+    "openai",
+    # Benchmark runner with the vllm backend (lm_eval --model vllm ...).
+    "lm-eval==0.4.13",
+    "huggingface-hub[hf-xet]",
+    "datasets",
+    "pandas",
+    "polars",
+    "pyarrow",
+    "tqdm",
+    "pynvml",
+    "pytest",
+]
+
+[tool.uv]
+package = false
+# Lock once for both CPU families so x86_64 (David) and aarch64 (Grace, Miyabi-G)
+# install the same resolved versions.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }

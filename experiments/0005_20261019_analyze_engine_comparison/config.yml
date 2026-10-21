@@ -1,0 +1,55 @@
+# ============================================================
+# Experiment Configuration
+# ============================================================
+# - Fixed hyperparameters go here.
+# - Variable dimensions (model, seed, prompt, ...) go in run_slurm.sh GRID_ARGS.
+# - Do NOT hardcode values you intend to sweep.
+# ============================================================
+# Approved spec: plan.md `experiment-conditions` (sha256 bb4bfad3a1b978ddad1aa29bec2a0725d125774670920b8822ebe34720cf34f7).
+# Single task "all" (plan.variants.tasks); no swept dimension.
+
+# --- Independent recomputation check (plan.evaluation.independent_verification) ---
+verification_seed: 0          # numpy default_rng seed for choosing the (variant, prompt, layer) triples
+verification_n_pairs: 3
+verification_tolerance: 1.0e-6
+
+# --- Sanity check (plan.evaluation.quality_checks.sanity): hf-bf16 vs itself ---
+sanity_cos_tolerance: 1.0e-9  # |cos - 1|; rel-L2 must be exactly 0
+
+# --- Speed inputs: 0003 (plan.data.identity.speed) ---
+speed:
+  input_dir: outputs/0003_20261019_eval_engine_speed
+  models: [qwen3-8b, qwen3-30b-a3b]
+  formats: [vllm-bf16, vllm-fp8, llamacpp-bf16, llamacpp-q8_0, llamacpp-q4_k_m]
+  baseline_format: vllm-bf16
+  repeats: [1, 2, 3]
+  min_valid_repeats: 2        # 0003 decision rule: < 2 valid repeats -> incomplete
+  output_len: 256             # 0003 quality check: every request must return 256 tokens
+  workloads:                  # 0003 hyperparameters.additional_settings.workloads
+    w1_single_in512: {input_len: 512, max_concurrency: 1, num_prompts: 16}
+    w2_single_in2048: {input_len: 2048, max_concurrency: 1, num_prompts: 16}
+    w3_c8: {input_len: 512, max_concurrency: 8, num_prompts: 64}
+    w4_c32: {input_len: 512, max_concurrency: 32, num_prompts: 256}
+    w5_c64: {input_len: 512, max_concurrency: 64, num_prompts: 512}
+  ttft_workloads: [w1_single_in512, w2_single_in2048]
+  tpot_workloads: [w1_single_in512]
+  llama_bench: {pp512: [512, 0], pp2048: [2048, 0], tg256: [0, 256]}   # name: [n_prompt, n_gen]
+
+# --- Hidden-state inputs: 0004 (plan.data.identity.hidden) ---
+hidden:
+  input_dir: outputs/0004_20261019_extract_hidden_states
+  prompts_file: experiments/0004_20261019_extract_hidden_states/inputs/prompts.json
+  prompts_sha256: dcb137efa9dcb3eaf16d1aa699f802c0c8944587663aa2a8cb44885fce86a42b
+  reference: hf-bf16
+  precision_floor: hf-fp32
+  variants: [hf-bf16, hf-fp32, vllm-bf16-hidden, vllm-bf16-pooling, llamacpp-bf16, llamacpp-q8_0, llamacpp-q4_k_m]
+  num_hidden_layers: 36
+  hidden_size: 4096
+  # Normed-vs-normed pairs whose names differ; all other layers pair by identical name.
+  layer_reference_map: {final_norm_cb: final_norm}
+  logits_top_k: 10
+
+exp_id: 0005
+exp_name: 0005_20261019_analyze_engine_comparison
+created_date: 20261019
+git_commit: 57a2212a7857862e7c7ace8d5853717b66a0379d

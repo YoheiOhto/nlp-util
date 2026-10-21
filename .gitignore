@@ -139,6 +139,20 @@ dmypy.json
 # Agent-generated activity logs
 logs/
 
+# ===== research experiment template (from template-daily-research-experiments @ 7aae6e9) =====
+# The template's shared library lives in /lib; "lib/" above is for packaging.
+!/lib/
+.venv*
+data/
+outputs/
+*.out
+experiments/*/review.md
+experiments/*/uncommitted_changes.diff
+experiments/latest
+.agent-runs/
+.agentrun.lock
+unsloth_compiled_cache/
+.research/code-check/
 # nlp-envs (envs/): built images and local environments never go into Git
 *.sif
 *.sif.partial

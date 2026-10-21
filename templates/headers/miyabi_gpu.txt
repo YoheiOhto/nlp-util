@@ -1,0 +1,6 @@
+#PBS -N __EXP_NAME__
+#PBS -o __OUTPUT_PATTERN__
+#PBS -e __ERROR_PATTERN__
+#PBS -l walltime=__TIME__
+#PBS -l select=1:ncpus=__CPU__:mpiprocs=__CPU__:ompthreads=__CPU__:gpus=__GPU__:mem=__MEM__
+#PBS -V
